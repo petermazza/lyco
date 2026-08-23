@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="_ds/nocturne-f7d4f4b9-5efb-4327-8360-eae7fa398138/styles.css">
+<script src="_ds/nocturne-f7d4f4b9-5efb-4327-8360-eae7fa398138/_ds_bundle.js"></script>
+<style>body{margin:0;background:#0f111c}@keyframes noct-fade{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}@keyframes noct-sheet{from{transform:translateY(100%)}to{transform:none}}</style>
+</helmet>
+<div style="min-height:100vh;display:flex;align-items:center;justify-content:center;padding:32px 16px;background:#0f111c">
+<x-import component-from-global-scope="IOSDevice" from="./ios-frame.jsx" dark="{{ true }}" hint-size="390px,844px">
+<div style="position:relative;height:100%;overflow:hidden;background:var(--color-bg);color:var(--color-text);font-family:var(--font-body)">
+
+<div style="height:100%;overflow-y:auto;padding:70px 18px 44px;display:flex;flex-direction:column;gap:var(--space-8)">
+
+<header style="display:flex;align-items:baseline;justify-content:space-between;gap:12px;padding-top:4px">
+<div>
+<div style="font-size:19px;font-family:var(--font-heading);font-weight:500;letter-spacing:-0.015em">{{ greeting }}</div>
+<div style="font-size:12px;color:color-mix(in srgb, var(--color-text) 50%, transparent);margin-top:2px">saturday 23 august · 2:10 pm</div>
+</div>
+<button class="btn btn-ghost" style="font-size:13px;min-height:44px">talk</button>
+</header>
+
+<section>
+<div style="display:flex;align-items:center;gap:8px;margin-bottom:var(--space-3)">
+<span style="width:6px;height:6px;border-radius:50%;background:var(--color-accent)"></span>
+<span style="font-size:10px;letter-spacing:0.12em;text-transform:uppercase;color:var(--color-accent)">right now</span>
+</div>
+
+<div class="card" style="gap:var(--space-4);padding:var(--space-6);border-radius:var(--radius-lg);border:1px solid color-mix(in srgb, var(--color-accent) 40%, transparent);background:var(--color-surface)">
+<div>
+<div style="font-family:var(--font-heading);font-weight:500;font-size:26px;line-height:1.15;letter-spacing:-0.02em;text-wrap:pretty">{{ nowTitle }}</div>
+<div style="font-size:13px;color:color-mix(in srgb, var(--color-text) 60%, transparent);margin-top:6px">{{ nowMeta }}</div>
+</div>
+
+<div>
+<div style="height:3px;border-radius:2px;background:color-mix(in srgb, var(--color-text) 10%, transparent);overflow:hidden">
+<div style="height:100%;width:{{ nowProgress }};background:var(--color-accent-500);border-radius:2px"></div>
+</div>
+<div style="display:flex;justify-content:space-between;font-size:11px;color:color-mix(in srgb, var(--color-text) 45%, transparent);margin-top:6px">
+<span>{{ nowElapsed }}</span><span>{{ nowLeft }}</span>
+</div>
+</div>
+
+<div style="display:flex;gap:var(--space-3)">
+<button class="btn btn-primary" style="flex:1;min-height:46px;font-size:15px" onClick="{{ onDone }}">Done</button>
+<button class="btn btn-secondary" style="flex:1;min-height:46px;font-size:15px" onClick="{{ onMove }}">Move it</button>
+</div>
+</div>
+</section>
+
+<section>
+<h6 style="margin:0 0 var(--space-4);color:color-mix(in srgb, var(--color-text) 45%, transparent)">Later today</h6>
+<div style="display:flex;flex-direction:column;gap:var(--space-2)">
+<sc-for list="{{ later }}" as="item" hint-placeholder-count="3">
+<div style="display:flex;align-items:baseline;gap:14px;padding:10px 0;background:linear-gradient(to right, transparent, color-mix(in srgb, var(--color-text) 8%, transparent) 24px, color-mix(in srgb, var(--color-text) 8%, transparent) calc(100% - 24px), transparent) no-repeat bottom / 100% 1px">
+<span style="font-size:12px;font-variant-numeric:tabular-nums;color:color-mix(in srgb, var(--color-text) 45%, transparent);width:62px;flex:none">{{ item.time }}</span>
+<span style="font-size:15px;line-height:1.3;flex:1;text-wrap:pretty">{{ item.title }}</span>
+<span style="font-size:11px;color:color-mix(in srgb, var(--color-text) 35%, transparent)">{{ item.len }}</span>
+</div>
+</sc-for>
+</div>
+</section>
+
+<section>
+<h6 style="margin:0 0 var(--space-4);color:color-mix(in srgb, var(--color-text) 45%, transparent)">Spending this month</h6>
+<div style="display:flex;flex-direction:column;gap:var(--space-6)">
+
+<div>
+<div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px">
+<span style="font-size:15px">Eating out</span>
+<span style="font-size:13px;font-variant-numeric:tabular-nums;color:color-mix(in srgb, var(--color-text) 60%, transparent)">{{ food.figure }}</span>
+</div>
+<div style="position:relative;height:8px;border-radius:4px;background:color-mix(in srgb, var(--color-text) 9%, transparent);margin-top:9px;overflow:hidden">
+<div style="height:100%;width:77.5%;border-radius:4px;background:var(--color-accent-500)"></div>
+<div style="position:absolute;top:-2px;bottom:-2px;left:74%;width:1px;background:color-mix(in srgb, var(--color-text) 40%, transparent)"></div>
+</div>
+<div style="font-size:11.5px;color:color-mix(in srgb, var(--color-text) 45%, transparent);margin-top:7px">about level with the month · 8 days left</div>
+</div>
+
+<div>
+<div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px">
+<span style="font-size:15px">Rideshare</span>
+<span style="font-size:13px;font-variant-numeric:tabular-nums;color:color-mix(in srgb, var(--color-text) 60%, transparent)">{{ ride.figure }}</span>
+</div>
+<div style="position:relative;height:8px;border-radius:4px;background:color-mix(in srgb, var(--color-text) 9%, transparent);margin-top:9px;overflow:hidden">
+<div style="height:100%;width:100%;border-radius:4px;background:var(--color-neutral-500)"></div>
+</div>
+<div style="font-size:11.5px;color:color-mix(in srgb, var(--color-text) 45%, transparent);margin-top:7px">$12 past the target you set · noted, nothing to do</div>
+</div>
+
+</div>
+</section>
+
+<section>
+<h6 style="margin:0 0 var(--space-4);color:color-mix(in srgb, var(--color-text) 45%, transparent)">Coming up</h6>
+<div class="card" style="flex-direction:row;align-items:center;gap:var(--space-6);padding:var(--space-4) var(--space-6);background:transparent;border:1px solid var(--color-divider)">
+<div style="text-align:center;flex:none">
+<div style="font-family:var(--font-heading);font-weight:500;font-size:30px;line-height:1;color:var(--color-accent-300);font-variant-numeric:tabular-nums">12</div>
+<div style="font-size:10px;letter-spacing:0.1em;text-transform:uppercase;color:color-mix(in srgb, var(--color-text) 40%, transparent);margin-top:4px">days</div>
+</div>
+<div style="flex:1;min-width:0">
+<div style="font-size:15px;line-height:1.25">Mom's birthday</div>
+<div style="font-size:12px;color:color-mix(in srgb, var(--color-text) 50%, transparent);margin-top:3px;text-wrap:pretty">gift idea logged: the ceramics class. order by the 30th to arrive in time.</div>
+</div>
+</div>
+</section>
+
+<footer style="margin-top:auto;padding-top:var(--space-6);background:linear-gradient(to right, transparent, var(--color-divider) 24px, var(--color-divider) calc(100% - 24px), transparent) no-repeat top / 100% 1px">
+<div style="display:flex;align-items:center;gap:5px;margin-bottom:9px;flex-wrap:wrap">
+<sc-for list="{{ dots }}" as="dot" hint-placeholder-count="31">
+<span style="width:5px;height:5px;border-radius:50%;background:{{ dot.color }}"></span>
+</sc-for>
+</div>
+<div style="font-size:12px;color:color-mix(in srgb, var(--color-text) 50%, transparent);text-wrap:pretty">{{ ratioLine }}</div>
+</footer>
+
+</div>
+
+<sc-if value="{{ moving }}" hint-placeholder-val="{{ false }}">
+<div style="position:absolute;inset:0;background:color-mix(in srgb, #0b0d16 62%, transparent);display:flex;flex-direction:column;justify-content:flex-end" onClick="{{ onCancelMove }}">
+<div style="background:var(--color-surface);border-radius:var(--radius-lg) var(--radius-lg) 0 0;padding:var(--space-6) var(--space-6) var(--space-8);animation:noct-sheet 220ms cubic-bezier(.2,.8,.3,1)" onClick="{{ stop }}">
+<div style="width:34px;height:4px;border-radius:2px;background:color-mix(in srgb, var(--color-text) 18%, transparent);margin:0 auto var(--space-6)"></div>
+<div style="font-family:var(--font-heading);font-weight:500;font-size:18px;margin-bottom:var(--space-2)">Move it where?</div>
+<div style="font-size:13px;color:color-mix(in srgb, var(--color-text) 50%, transparent);margin-bottom:var(--space-6)">the block stays the same size. your calendar updates too.</div>
+<div style="display:flex;flex-direction:column;gap:var(--space-3)">
+<sc-for list="{{ moveOptions }}" as="opt" hint-placeholder-count="4">
+<button class="btn btn-secondary" style="justify-content:space-between;min-height:48px;font-size:15px;width:100%" onClick="{{ opt.pick }}"><span>{{ opt.label }}</span><span style="font-size:12px;color:color-mix(in srgb, var(--color-text) 45%, transparent);font-weight:400">{{ opt.hint }}</span></button>
+</sc-for>
+</div>
+</div>
+</div>
+</sc-if>
+
+<sc-if value="{{ toast }}" hint-placeholder-val="{{ false }}">
+<div style="position:absolute;left:18px;right:18px;bottom:44px;background:var(--color-surface);border-radius:var(--radius-md);padding:12px 14px;font-size:13px;border:1px solid var(--color-divider);animation:noct-fade 240ms ease both">{{ toast }}</div>
+</sc-if>
+
+</div>
+</x-import>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:&quot;460&quot;,&quot;height&quot;:&quot;920&quot;},&quot;greeting&quot;:{&quot;editor&quot;:&quot;text&quot;,&quot;default&quot;:&quot;Afternoon, Sam&quot;,&quot;tsType&quot;:&quot;string&quot;},&quot;spendingMode&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;spent&quot;,&quot;left&quot;],&quot;default&quot;:&quot;spent&quot;,&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;Content&quot;},&quot;ratioStyle&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;sentence&quot;,&quot;fraction&quot;],&quot;default&quot;:&quot;sentence&quot;,&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;Content&quot;}}">
+class Component extends DCLogic {
+  state = {
+    queue: [
+      { title: "Draft the SimpleFIN adapter", meta: "90 minutes · until 3:30 · calendar", progress: "22%", elapsed: "20 minutes in", left: "70 minutes left" },
+      { title: "Walk, no phone", meta: "30 minutes · until 4:15 · calendar", progress: "0%", elapsed: "starts 3:45", left: "30 minutes" },
+      { title: "Write the weekly digest prompt", meta: "45 minutes · until 6:45 · calendar", progress: "0%", elapsed: "starts 6:00", left: "45 minutes" }
+    ],
+    later: [
+      { time: "3:45 pm", title: "Walk, no phone", len: "30m" },
+      { time: "6:00 pm", title: "Write the weekly digest prompt", len: "45m" },
+      { time: "8:30 pm", title: "Call Dad", len: "20m" }
+    ],
+    kept: 23, total: 31,
+    moving: false, toast: null
+  };
+  _toast(t) {
+    clearTimeout(this._tid);
+    this.setState({ toast: t });
+    this._tid = setTimeout(() => this.setState({ toast: null }), 2800);
+  }
+  componentWillUnmount() { clearTimeout(this._tid); }
+  renderVals() {
+    const s = this.state;
+    const cur = s.queue[0];
+    const spending = this.props.spendingMode ?? "spent";
+    const dots = [];
+    for (let i = 0; i < s.total; i++) {
+      dots.push({ color: i < s.kept ? "var(--color-accent-500)" : "color-mix(in srgb, var(--color-text) 16%, transparent)" });
+    }
+    return {
+      greeting: this.props.greeting ?? "Afternoon, Sam",
+      nowTitle: cur ? cur.title : "Nothing scheduled until 6:00",
+      nowMeta: cur ? cur.meta : "the afternoon is yours",
+      nowProgress: cur ? cur.progress : "0%",
+      nowElapsed: cur ? cur.elapsed : "",
+      nowLeft: cur ? cur.left : "",
+      later: s.later,
+      food: { figure: spending === "left" ? "$54 left of $240" : "$186 of $240" },
+      ride: { figure: spending === "left" ? "$0 left of $80" : "$92 of $80" },
+      dots,
+      ratioLine: (this.props.ratioStyle ?? "sentence") === "fraction"
+        ? "kept blocks · " + s.kept + "/" + s.total + " this month"
+        : "you kept " + s.kept + " of " + s.total + " blocks this month.",
+      moving: s.moving,
+      toast: s.toast,
+      onDone: () => {
+        const q = s.queue.slice(1);
+        const l = s.later.slice(1);
+        this.setState({ queue: q, later: l, kept: s.kept + 1, total: s.total + 1 });
+        this._toast(q.length ? "kept. next one is at " + s.later[0].time + "." : "kept. that is the day.");
+      },
+      onMove: () => this.setState({ moving: true }),
+      onCancelMove: () => this.setState({ moving: false }),
+      stop: (e) => e.stopPropagation(),
+      moveOptions: [
+        { label: "Later today", hint: "6:45 pm", pick: () => { this.setState({ moving: false }); this._toast("moved to 6:45 pm. calendar updated."); } },
+        { label: "Tomorrow morning", hint: "9:00 am", pick: () => { this.setState({ moving: false }); this._toast("moved to tomorrow, 9:00 am."); } },
+        { label: "Give it 15 more minutes", hint: "you are mid-block", pick: () => { this.setState({ moving: false }); this._toast("15 minutes added. until 3:45."); } },
+        { label: "Drop it this week", hint: "no explanation needed", pick: () => { this.setState({ moving: false, queue: s.queue.slice(1), later: s.later.slice(1) }); this._toast("dropped. it will not come back on its own."); } }
+      ]
+    };
+  }
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="_ds/nocturne-f7d4f4b9-5efb-4327-8360-eae7fa398138/styles.css">
+<script src="_ds/nocturne-f7d4f4b9-5efb-4327-8360-eae7fa398138/_ds_bundle.js"></script>
+<style>body{margin:0;background:#0f111c}@keyframes noct-in{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}</style>
+</helmet>
+<div style="min-height:100vh;display:flex;align-items:center;justify-content:center;padding:32px 16px;background:#0f111c">
+<x-import component-from-global-scope="IOSDevice" from="./ios-frame.jsx" dark="{{ true }}" hint-size="390px,844px">
+<div style="position:relative;height:100%;display:flex;flex-direction:column;background:var(--color-bg);color:var(--color-text);font-family:var(--font-body);overflow:hidden">
+
+<header style="flex:none;padding:66px 20px 14px;display:flex;align-items:center;gap:14px">
+<button class="btn btn-ghost" style="font-size:13px;min-height:44px;padding-inline:0">Close</button>
+<div style="flex:1;min-width:0;text-align:right">
+<div style="font-size:10px;letter-spacing:0.12em;text-transform:uppercase;color:color-mix(in srgb, var(--color-text) 35%, transparent)">New project</div>
+<div style="font-family:var(--font-heading);font-weight:500;font-size:16px;line-height:1.25;margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ title }}</div>
+</div>
+</header>
+
+<div ref="{{ scrollRef }}" style="flex:1;overflow-y:auto;padding:8px 20px 20px;display:flex;flex-direction:column;gap:var(--space-8)">
+<sc-for list="{{ messages }}" as="m" hint-placeholder-count="4">
+<div>
+<sc-if value="{{ m.isUser }}" hint-placeholder-val="{{ false }}">
+<div style="display:flex;justify-content:flex-end">
+<div style="max-width:78%;background:var(--color-surface);border-radius:var(--radius-lg);padding:10px 14px;font-size:15px;line-height:1.45;text-wrap:pretty">{{ m.text }}</div>
+</div>
+</sc-if>
+<sc-if value="{{ m.isPast }}" hint-placeholder-val="{{ false }}">
+<div style="max-width:88%;font-size:15px;line-height:1.5;color:color-mix(in srgb, var(--color-text) 55%, transparent);text-wrap:pretty">{{ m.text }}</div>
+</sc-if>
+<sc-if value="{{ m.isAsk }}" hint-placeholder-val="{{ true }}">
+<div style="max-width:92%;font-family:var(--font-heading);font-weight:500;font-size:21px;line-height:1.3;letter-spacing:-0.015em;text-wrap:pretty;animation:noct-in 260ms ease both">{{ m.text }}</div>
+</sc-if>
+</div>
+</sc-for>
+
+<div style="display:flex;flex-wrap:wrap;gap:var(--space-3);padding-top:var(--space-2)">
+<sc-for list="{{ suggestions }}" as="s" hint-placeholder-count="3">
+<button class="btn btn-primary" style="min-height:44px;border-radius:22px;font-size:14px;padding-inline:var(--space-6)" onClick="{{ s.pick }}">{{ s.label }}</button>
+</sc-for>
+</div>
+</div>
+
+<div style="flex:none;padding:0 20px 34px">
+<div style="display:flex;gap:var(--space-6);padding:12px 0;background:linear-gradient(to right, transparent, var(--color-divider) 24px, var(--color-divider) calc(100% - 24px), transparent) no-repeat top / 100% 1px">
+<div style="flex:1;min-width:0">
+<div style="font-size:9.5px;letter-spacing:0.1em;text-transform:uppercase;color:color-mix(in srgb, var(--color-text) 32%, transparent)">Title</div>
+<div style="font-size:12.5px;margin-top:3px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:{{ capTitleColor }}">{{ capTitle }}</div>
+</div>
+<div style="flex:none;width:96px">
+<div style="font-size:9.5px;letter-spacing:0.1em;text-transform:uppercase;color:color-mix(in srgb, var(--color-text) 32%, transparent)">Deadline</div>
+<div style="font-size:12.5px;margin-top:3px;color:{{ capDeadlineColor }}">{{ capDeadline }}</div>
+</div>
+<div style="flex:none;width:88px">
+<div style="font-size:9.5px;letter-spacing:0.1em;text-transform:uppercase;color:color-mix(in srgb, var(--color-text) 32%, transparent)">Cadence</div>
+<div style="font-size:12.5px;margin-top:3px;color:{{ capCadenceColor }}">{{ capCadence }}</div>
+</div>
+</div>
+
+<div style="display:flex;align-items:center;gap:var(--space-3);margin-top:var(--space-2)">
+<input class="input" style="flex:1;min-height:44px;border-radius:22px;background:transparent" placeholder="{{ inputHint }}">
+<button class="btn btn-secondary btn-icon" style="width:44px;height:44px;border-radius:50%;flex:none" aria-label="send">
+<svg width="17" height="17" viewBox="0 0 256 256" fill="currentColor"><path d="M210 128a10 10 0 0 1-5.7 9l-152 72a10 10 0 0 1-13.7-12l22-79-22-79a10 10 0 0 1 13.7-12l152 72a10 10 0 0 1 5.7 9Zm-30 0-131-62 18 62Zm-113 62 131-62H85Z"/></svg>
+</button>
+</div>
+</div>
+
+</div>
+</x-import>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:&quot;460&quot;,&quot;height&quot;:&quot;920&quot;}}">
+class Component extends DCLogic {
+  constructor(p) {
+    super(p);
+    this.scrollRef = React.createRef();
+    this.state = {
+      step: 0,
+      log: [
+        { who: "user", text: "I want to find a new job" },
+        { who: "bot", text: "Okay. A few questions and I'll set it up." }
+      ]
+    };
+  }
+  script = [
+    {
+      ask: "What would count as done here — a signed offer, or something earlier, like real conversations started?",
+      hint: "or say it in your own words",
+      replies: [
+        { label: "A signed offer", cap: { title: "New job — signed offer", head: "New job — signed offer" } },
+        { label: "First-round interviews", cap: { title: "New job — 5 first rounds", head: "New job — 5 first rounds" } },
+        { label: "Not sure yet", cap: { title: "New job search", head: "New job search" } }
+      ]
+    },
+    {
+      ask: "When do you want that by?",
+      hint: "a rough date is fine",
+      replies: [
+        { label: "End of october", cap: { deadline: "31 oct" } },
+        { label: "End of the year", cap: { deadline: "31 dec" } },
+        { label: "No date yet", cap: { deadline: "open" } }
+      ]
+    },
+    {
+      ask: "How often should I hold time for this?",
+      hint: "you can change this later",
+      replies: [
+        { label: "Twice a week", cap: { cadence: "2× a week" } },
+        { label: "Weekday mornings", cap: { cadence: "weekday am" } },
+        { label: "Sunday evenings", cap: { cadence: "sundays" } }
+      ]
+    },
+    {
+      ask: "That's enough to start. Want me to put the first two blocks on your calendar this week?",
+      hint: "or tell me what to change",
+      replies: [
+        { label: "Yes, schedule them", done: true },
+        { label: "Not yet", done: true }
+      ]
+    }
+  ];
+  componentDidUpdate() {
+    const el = this.scrollRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }
+  renderVals() {
+    const s = this.state;
+    const node = this.script[s.step];
+    const log = node ? s.log.concat([{ who: "bot", text: node.ask, ask: true }]) : s.log;
+    const cap = s.log.reduce((a, m) => Object.assign(a, m.cap || {}), {});
+    const quiet = "color-mix(in srgb, var(--color-text) 28%, transparent)";
+    const set = "color-mix(in srgb, var(--color-text) 75%, transparent)";
+    return {
+      title: cap.head || "Untitled",
+      messages: log.map((m) => ({
+        text: m.text,
+        isUser: m.who === "user",
+        isPast: m.who === "bot" && !m.ask,
+        isAsk: !!m.ask
+      })),
+      suggestions: node ? node.replies.map((r) => ({
+        label: r.label,
+        pick: () => this.setState({
+          step: s.step + (r.done ? 0 : 1),
+          log: s.log.concat([{ who: "bot", text: node.ask }, { who: "user", text: r.label, cap: r.cap }])
+        })
+      })) : [],
+      inputHint: node ? node.hint : "anything else?",
+      capTitle: cap.title || "waiting",
+      capDeadline: cap.deadline || "—",
+      capCadence: cap.cadence || "—",
+      capTitleColor: cap.title ? set : quiet,
+      capDeadlineColor: cap.deadline ? set : quiet,
+      capCadenceColor: cap.cadence ? set : quiet,
+      scrollRef: this.scrollRef
+    };
+  }
+}
+</script>
+</body>
+</html>

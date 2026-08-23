@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="_ds/nocturne-f7d4f4b9-5efb-4327-8360-eae7fa398138/styles.css">
+<script src="_ds/nocturne-f7d4f4b9-5efb-4327-8360-eae7fa398138/_ds_bundle.js"></script>
+<style>body{margin:0;background:#0f111c}@keyframes noct-in{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}</style>
+</helmet>
+<div style="min-height:100vh;display:flex;align-items:center;justify-content:center;padding:32px 16px;background:#0f111c">
+<x-import component-from-global-scope="IOSDevice" from="./ios-frame.jsx" dark="{{ true }}" hint-size="390px,844px">
+<div style="position:relative;height:100%;display:flex;flex-direction:column;background:var(--color-bg);color:var(--color-text);font-family:var(--font-body);overflow:hidden">
+
+<div style="flex:1;overflow-y:auto;padding:66px 20px 34px;display:flex;flex-direction:column;gap:var(--space-8)">
+
+<header>
+<div style="font-family:var(--font-heading);font-weight:500;font-size:20px;line-height:1.25;letter-spacing:-0.015em;text-wrap:pretty">{{ title }}</div>
+<div style="display:flex;align-items:center;gap:10px;margin-top:6px;font-size:12.5px;color:color-mix(in srgb, var(--color-text) 50%, transparent)">
+<span>by {{ deadline }}</span>
+<span style="width:3px;height:3px;border-radius:50%;background:color-mix(in srgb, var(--color-text) 30%, transparent)"></span>
+<span>{{ weeksLeft }}</span>
+</div>
+</header>
+
+<p style="margin:0;font-family:var(--font-heading);font-weight:500;font-size:17px;line-height:1.4;letter-spacing:-0.01em;color:var(--color-accent-300);text-wrap:pretty">{{ reasoning }}</p>
+
+<section>
+<h6 style="margin:0 0 var(--space-4);color:color-mix(in srgb, var(--color-text) 45%, transparent)">Proposed times</h6>
+<div style="display:flex;flex-direction:column;gap:var(--space-3)">
+<sc-for list="{{ slots }}" as="slot" hint-placeholder-count="2">
+<div style="border:1px solid var(--color-divider);border-radius:var(--radius-lg);padding:var(--space-6);animation:noct-in 240ms ease both">
+<div style="display:flex;align-items:baseline;justify-content:space-between;gap:12px">
+<span style="font-family:var(--font-heading);font-weight:500;font-size:18px;letter-spacing:-0.01em">{{ slot.day }}</span>
+<span style="font-size:14px;font-variant-numeric:tabular-nums;color:color-mix(in srgb, var(--color-text) 70%, transparent)">{{ slot.time }}</span>
+</div>
+<div style="display:flex;align-items:center;gap:7px;margin-top:9px">
+<span style="width:5px;height:5px;border-radius:50%;background:var(--color-accent-500);flex:none"></span>
+<span style="font-size:11.5px;color:color-mix(in srgb, var(--color-text) 45%, transparent);text-wrap:pretty">{{ slot.history }}</span>
+</div>
+</div>
+</sc-for>
+</div>
+</section>
+
+<sc-if value="{{ open }}" hint-placeholder-val="{{ true }}">
+<div style="display:flex;flex-direction:column;gap:var(--space-3)">
+<button class="btn btn-secondary" style="min-height:48px;font-size:15px;width:100%" onClick="{{ onAccept }}">Accept these times</button>
+<button class="btn btn-secondary" style="min-height:48px;font-size:15px;width:100%" onClick="{{ onDifferent }}">Pick different times</button>
+<button class="btn btn-secondary" style="min-height:48px;font-size:15px;width:100%" onClick="{{ onReduce }}">Go less often</button>
+</div>
+</sc-if>
+
+<sc-if value="{{ confirmed }}" hint-placeholder-val="{{ false }}">
+<div style="border:1px solid color-mix(in srgb, var(--color-accent) 40%, transparent);border-radius:var(--radius-lg);padding:var(--space-6);animation:noct-in 260ms ease both">
+<div style="font-family:var(--font-heading);font-weight:500;font-size:17px">Set. the blocks are in your calendar.</div>
+<div style="font-size:13px;color:color-mix(in srgb, var(--color-text) 55%, transparent);margin-top:6px;text-wrap:pretty">the deadline is locked from here. you can still move any single block.</div>
+</div>
+</sc-if>
+
+<footer style="margin-top:auto;padding-top:var(--space-6);display:flex;flex-direction:column;gap:var(--space-3);background:linear-gradient(to right, transparent, var(--color-divider) 24px, var(--color-divider) calc(100% - 24px), transparent) no-repeat top / 100% 1px">
+<div style="font-size:12.5px;color:color-mix(in srgb, var(--color-text) 55%, transparent)">{{ sessionLine }}</div>
+<div style="font-size:12.5px;line-height:1.5;color:color-mix(in srgb, var(--color-text) 40%, transparent);text-wrap:pretty">confirming locks the deadline. changing it later is allowed, and it goes on this project's record permanently.</div>
+</footer>
+
+</div>
+</div>
+</x-import>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:&quot;460&quot;,&quot;height&quot;:&quot;920&quot;},&quot;title&quot;:{&quot;editor&quot;:&quot;text&quot;,&quot;default&quot;:&quot;New job — 5 first rounds&quot;,&quot;tsType&quot;:&quot;string&quot;}}">
+class Component extends DCLogic {
+  state = { pace: 2, confirmed: false };
+  plans = {
+    2: {
+      reasoning: "Twice a week gets you there with room to spare.",
+      sessions: "that is 18 sessions before 31 october.",
+      slots: [
+        { day: "Tuesday", time: "7:00 – 8:30 pm", history: "free on 8 of the last 10 tuesday evenings" },
+        { day: "Saturday", time: "9:30 – 11:00 am", history: "free most saturday mornings" }
+      ]
+    },
+    1: {
+      reasoning: "Once a week still lands it, with less slack near the end.",
+      sessions: "that is 9 sessions before 31 october.",
+      slots: [
+        { day: "Saturday", time: "9:30 – 11:00 am", history: "free most saturday mornings" }
+      ]
+    }
+  };
+  renderVals() {
+    const plan = this.plans[this.state.pace];
+    return {
+      title: this.props.title ?? "New job — 5 first rounds",
+      deadline: "31 october",
+      weeksLeft: "9 weeks left",
+      reasoning: plan.reasoning,
+      slots: plan.slots,
+      sessionLine: plan.sessions,
+      open: !this.state.confirmed,
+      confirmed: this.state.confirmed,
+      onAccept: () => this.setState({ confirmed: true }),
+      onDifferent: () => this.setState({ confirmed: false }),
+      onReduce: () => this.setState({ pace: this.state.pace === 2 ? 1 : 2 })
+    };
+  }
+}
+</script>
+</body>
+</html>
