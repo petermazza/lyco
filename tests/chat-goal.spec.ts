@@ -5,7 +5,7 @@ const BASE = "http://localhost:3001";
 
 test.describe.serial("Chat to goal flow", () => {
   test.beforeEach(async () => {
-    execSync("npm run seed", { stdio: "pipe", cwd: process.cwd() });
+    execSync("npm run db:reset", { stdio: "pipe", cwd: process.cwd() });
   });
 
   test("typing a goal in chat creates a row in Postgres and shows on home after refresh", async ({ page }) => {

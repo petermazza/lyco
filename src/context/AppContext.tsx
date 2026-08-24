@@ -187,8 +187,8 @@ const newProjectScript: ScriptNode[] = [
     ask: "When do you want that by?",
     hint: "a rough date is fine",
     replies: [
-      { label: "End of october", cap: { deadline: "31 oct" } },
-      { label: "End of the year", cap: { deadline: "31 dec" } },
+      { label: "End of October", cap: { deadline: "31 Oct" } },
+      { label: "End of the year", cap: { deadline: "31 Dec" } },
       { label: "No date yet", cap: { deadline: "open" } },
     ],
   },
@@ -198,7 +198,7 @@ const newProjectScript: ScriptNode[] = [
     replies: [
       { label: "Twice a week", cap: { cadence: "2× a week" } },
       { label: "Weekday mornings", cap: { cadence: "weekday am" } },
-      { label: "Sunday evenings", cap: { cadence: "sundays" } },
+      { label: "Sunday evenings", cap: { cadence: "Sundays" } },
     ],
   },
   {
@@ -214,17 +214,17 @@ const newProjectScript: ScriptNode[] = [
 const schedulePlans: Record<number, SchedulePlan> = {
   2: {
     reasoning: "Twice a week gets you there with room to spare.",
-    sessions: "that is 18 sessions before 31 october.",
+    sessions: "that is 18 sessions before 31 October.",
     slots: [
-      { day: "Tuesday", time: "7:00 – 8:30 pm", history: "free on 8 of the last 10 tuesday evenings" },
-      { day: "Saturday", time: "9:30 – 11:00 am", history: "free most saturday mornings" },
+      { day: "Tuesday", time: "7:00 – 8:30 pm", history: "free on 8 of the last 10 Tuesday evenings" },
+      { day: "Saturday", time: "9:30 – 11:00 am", history: "free most Saturday mornings" },
     ],
   },
   1: {
     reasoning: "Once a week still lands it, with less slack near the end.",
-    sessions: "that is 9 sessions before 31 october.",
+    sessions: "that is 9 sessions before 31 October.",
     slots: [
-      { day: "Saturday", time: "9:30 – 11:00 am", history: "free most saturday mornings" },
+      { day: "Saturday", time: "9:30 – 11:00 am", history: "free most Saturday mornings" },
     ],
   },
 };

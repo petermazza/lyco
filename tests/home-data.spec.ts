@@ -5,7 +5,7 @@ const BASE = "http://localhost:3001";
 
 test("home data renders from DB when authenticated", async ({ page, context }) => {
   // Reseed before this test to ensure fresh data
-  execSync("npm run seed", { stdio: "pipe", cwd: process.cwd() });
+  execSync("npm run db:reset", { stdio: "pipe", cwd: process.cwd() });
 
   // Authenticate via magic link
   const ctx = await apiRequest.newContext();

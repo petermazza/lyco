@@ -13,17 +13,17 @@ interface Slot {
 const schedulePlans: Record<number, { reasoning: string; sessions: string; slots: Slot[] }> = {
   2: {
     reasoning: "Twice a week gets you there with room to spare.",
-    sessions: "that is 18 sessions before 31 october.",
+    sessions: "that is 18 sessions before 31 October.",
     slots: [
-      { day: "Tuesday", time: "7:00 – 8:30 pm", history: "free on 8 of the last 10 tuesday evenings" },
-      { day: "Saturday", time: "9:30 – 11:00 am", history: "free most saturday mornings" },
+      { day: "Tuesday", time: "7:00 – 8:30 pm", history: "free on 8 of the last 10 Tuesday evenings" },
+      { day: "Saturday", time: "9:30 – 11:00 am", history: "free most Saturday mornings" },
     ],
   },
   1: {
     reasoning: "Once a week still lands it, with less slack near the end.",
-    sessions: "that is 9 sessions before 31 october.",
+    sessions: "that is 9 sessions before 31 October.",
     slots: [
-      { day: "Saturday", time: "9:30 – 11:00 am", history: "free most saturday mornings" },
+      { day: "Saturday", time: "9:30 – 11:00 am", history: "free most Saturday mornings" },
     ],
   },
 };
@@ -109,7 +109,7 @@ export function ScheduleProposalScreen() {
             New job — 5 first rounds
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 6, fontSize: 12.5, color: "color-mix(in srgb, var(--color-text) 50%, transparent)" }}>
-            <span>by 31 october</span>
+            <span>by 31 October</span>
             <span style={{ width: 3, height: 3, borderRadius: "50%", background: "color-mix(in srgb, var(--color-text) 30%, transparent)" }} />
             <span>9 weeks left</span>
           </div>

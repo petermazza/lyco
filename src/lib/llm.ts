@@ -63,7 +63,7 @@ export async function callLLM(
       tools: toolDefinitions.map((t) => ({
         name: t.name,
         description: t.description,
-        input_schema: t.input_schema as Record<string, unknown>,
+        input_schema: t.input_schema,
       })),
     });
 

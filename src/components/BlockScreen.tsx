@@ -141,7 +141,7 @@ export function BlockScreen() {
               {s.closed === "done" ? "Kept. that is the block." : "Moved to tomorrow, 7:00 pm."}
             </div>
             <div style={{ fontSize: 13, color: "color-mix(in srgb, var(--color-text) 55%, transparent)", marginTop: 6, textWrap: "pretty" }}>
-              {s.closed === "done" ? "next block is saturday at 9:30 am." : "your calendar is updated. nothing else changes."}
+              {s.closed === "done" ? "next block is Saturday at 9:30 am." : "your calendar is updated. nothing else changes."}
             </div>
             <Link href="/" className="btn btn-secondary" style={{ marginTop: "var(--space-6)", minHeight: 46, fontSize: 15, width: "100%" }}>
               Back to home

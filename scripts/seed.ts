@@ -1,6 +1,6 @@
 import { pool, query } from "../src/lib/db";
 
-async function seed() {
+export async function seed() {
   // ─── Create test user ──────────────────────────────────────
   const email = "sam@lyco.test";
 
@@ -187,11 +187,16 @@ async function seed() {
   );
   console.log("Occasions:", occasionRows);
 
-  await pool.end();
   console.log("\nSeed complete.");
 }
 
-seed().catch((err) => {
-  console.error("Seed failed:", err);
-  process.exit(1);
-});
+if (process.argv[1]?.endsWith("seed.ts")) {
+  seed()
+    .then(async () => {
+      await pool.end();
+    })
+    .catch((err) => {
+      console.error("Seed failed:", err);
+      process.exit(1);
+    });
+}

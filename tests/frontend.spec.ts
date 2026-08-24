@@ -4,7 +4,7 @@ import { execSync } from "child_process";
 const BASE = "http://localhost:3001";
 
 async function reseed() {
-  execSync("npm run seed", { stdio: "pipe", cwd: process.cwd() });
+  execSync("npm run db:reset", { stdio: "pipe", cwd: process.cwd() });
 }
 
 async function gotoHome(page: Page) {
@@ -329,14 +329,14 @@ test.describe("New project screen", () => {
 
 test.describe.serial("Schedule proposal screen", () => {
   test.beforeEach(async () => {
-    execSync("npm run seed", { stdio: "pipe", cwd: process.cwd() });
+    execSync("npm run db:reset", { stdio: "pipe", cwd: process.cwd() });
   });
 
   test("shows project title and deadline", async ({ page }) => {
     await page.goto("/schedule");
     await page.waitForLoadState("networkidle");
     await expect(page.getByText("New job — 5 first rounds")).toBeVisible();
-    await expect(page.getByText("by 31 october")).toBeVisible();
+    await expect(page.getByText("by 31 October")).toBeVisible();
     await expect(page.getByText("9 weeks left")).toBeVisible();
   });
 
@@ -376,7 +376,7 @@ test.describe.serial("Schedule proposal screen", () => {
     await page.waitForLoadState("networkidle");
     await page.getByRole("button", { name: "Go less often" }).click();
     await expect(page.getByText(/Once a week still lands it/i)).toBeVisible();
-    await expect(page.getByText("that is 9 sessions before 31 october.")).toBeVisible();
+    await expect(page.getByText("that is 9 sessions before 31 October.")).toBeVisible();
     // Only one slot now
     await expect(page.getByText("Saturday", { exact: true })).toBeVisible();
     await expect(page.getByText("Tuesday", { exact: true })).not.toBeVisible();
@@ -402,6 +402,95 @@ test.describe.serial("Schedule proposal screen", () => {
   test("shows session count in footer", async ({ page }) => {
     await page.goto("/schedule");
     await page.waitForLoadState("networkidle");
-    await expect(page.getByText(/that is 18 sessions before 31 october/i)).toBeVisible();
+    await expect(page.getByText(/that is 18 sessions before 31 October/i)).toBeVisible();
+  });
+});
+
+// ─── Sentence casing check ───────────────────────────────────
+
+const PROPER_NOUNS = [
+  "January", "February", "March", "April", "May", "June",
+  "July", "August", "September", "October", "November", "December",
+  "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday",
+  "Google",
+];
+
+const LOWER_PROPER_NOUNS = [
+  "january", "february", "march", "april", "june",
+  "july", "august", "september", "october", "november", "december",
+  "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday",
+];
+
+// "may" and "google" excluded from lowercase list — "may" is a common word,
+// "google" only appears as "Google" in UI text.
+
+async function getVisibleText(page: import("@playwright/test").Page): Promise<string> {
+  return page.evaluate(() => document.body.innerText);
+}
+
+test.describe.serial("Sentence casing", () => {
+  test.beforeEach(async () => {
+    await reseed();
+  });
+
+  test("home screen capitalizes proper nouns", async ({ page }) => {
+    await gotoHome(page);
+    const text = await getVisibleText(page);
+    for (const noun of LOWER_PROPER_NOUNS) {
+      expect(text, `expected no lowercase "${noun}"`).not.toContain(noun);
+    }
+  });
+
+  test("home screen date label uses capitalized weekday and month", async ({ page }) => {
+    await gotoHome(page);
+    const text = await getVisibleText(page);
+    // The date label is "Weekday Day Month · time" — at least one capitalized
+    // weekday and one capitalized month should appear (or the greeting time)
+    const hasCapitalizedWeekday = PROPER_NOUNS.slice(12, 19).some((d) => text.includes(d));
+    expect(hasCapitalizedWeekday, "expected a capitalized weekday in the date label").toBeTruthy();
+  });
+
+  test("schedule screen capitalizes proper nouns", async ({ page }) => {
+    await page.goto("/schedule");
+    await page.waitForLoadState("networkidle");
+    const text = await getVisibleText(page);
+    for (const noun of LOWER_PROPER_NOUNS) {
+      expect(text, `expected no lowercase "${noun}"`).not.toContain(noun);
+    }
+    // Verify specific capitalized forms appear
+    expect(text).toContain("October");
+    expect(text).toContain("Tuesday");
+    expect(text).toContain("Saturday");
+  });
+
+  test("block screen capitalizes proper nouns", async ({ page }) => {
+    await page.goto("/block");
+    await page.waitForLoadState("networkidle");
+    const text = await getVisibleText(page);
+    for (const noun of LOWER_PROPER_NOUNS) {
+      expect(text, `expected no lowercase "${noun}"`).not.toContain(noun);
+    }
+  });
+
+  test("block screen closed state capitalizes Saturday", async ({ page }) => {
+    await page.goto("/block");
+    await page.waitForLoadState("networkidle");
+    await page.getByRole("button", { name: "Mark done" }).click();
+    await expect(page.getByText(/Kept.*that is the block/i)).toBeVisible();
+    const text = await getVisibleText(page);
+    expect(text).toContain("Saturday");
+    expect(text).not.toContain("saturday");
+  });
+
+  test("schedule once-a-week mode capitalizes October and Saturday", async ({ page }) => {
+    await page.goto("/schedule");
+    await page.waitForLoadState("networkidle");
+    await page.getByRole("button", { name: "Go less often" }).click();
+    await expect(page.getByText(/Once a week/i)).toBeVisible();
+    const text = await getVisibleText(page);
+    expect(text).toContain("October");
+    expect(text).toContain("Saturday");
+    expect(text).not.toContain("october");
+    expect(text).not.toContain("saturday");
   });
 });
