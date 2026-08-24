@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="_ds/nocturne-f7d4f4b9-5efb-4327-8360-eae7fa398138/styles.css">
+<link rel="stylesheet" href="app-tokens.css">
+<script src="_ds/nocturne-f7d4f4b9-5efb-4327-8360-eae7fa398138/_ds_bundle.js"></script>
+<meta name="design_doc_mode" content="canvas">
+<style>body{margin:0;background:#0f111c}@keyframes noct-breathe{0%,100%{opacity:.55}50%{opacity:1}}</style>
+</helmet>
+<div style="min-height:100vh;background:#0f111c;padding:36px 24px 60px;display:flex;flex-wrap:wrap;gap:40px;align-items:flex-start;justify-content:center;font-family:var(--font-body);color:var(--app-text)">
+
+<div style="display:flex;flex-direction:column;gap:10px">
+<div style="font-size:var(--app-size-meta);color:var(--app-text-muted)">Loading — each section arrives on its own</div>
+<dc-import name="Home states phone" mode="loading" hint-size="420px,900px"></dc-import>
+</div>
+
+<div style="display:flex;flex-direction:column;gap:10px">
+<div style="font-size:var(--app-size-meta);color:var(--app-text-muted)">Empty — first login, nothing set up</div>
+<dc-import name="Home states phone" mode="empty" hint-size="420px,900px"></dc-import>
+</div>
+
+<div style="display:flex;flex-direction:column;gap:10px">
+<div style="font-size:var(--app-size-meta);color:var(--app-text-muted)">Partly filled — calendar connected, no spending targets</div>
+<dc-import name="Home states phone" mode="partial" hint-size="420px,900px"></dc-import>
+</div>
+
+</div>
+</x-dc>
+</body>
+</html>

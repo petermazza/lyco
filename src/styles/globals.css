@@ -193,6 +193,10 @@ textarea.input { min-height: 90px; resize: vertical; }
   from { opacity: 0; transform: translateY(8px); }
   to { opacity: 1; transform: none; }
 }
+@keyframes noct-pulse {
+  0%, 100% { opacity: 0.3; }
+  50% { opacity: 0.6; }
+}
 
 /* — mobile shell — */
 .mobile-shell {

@@ -1,13 +1,103 @@
 "use client";
 
-import React from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
-import { useApp, schedulePlans } from "@/context/AppContext";
 import { StatusBar } from "./StatusBar";
 
+interface Slot {
+  day: string;
+  time: string;
+  history: string;
+}
+
+const schedulePlans: Record<number, { reasoning: string; sessions: string; slots: Slot[] }> = {
+  2: {
+    reasoning: "Twice a week gets you there with room to spare.",
+    sessions: "that is 18 sessions before 31 october.",
+    slots: [
+      { day: "Tuesday", time: "7:00 – 8:30 pm", history: "free on 8 of the last 10 tuesday evenings" },
+      { day: "Saturday", time: "9:30 – 11:00 am", history: "free most saturday mornings" },
+    ],
+  },
+  1: {
+    reasoning: "Once a week still lands it, with less slack near the end.",
+    sessions: "that is 9 sessions before 31 october.",
+    slots: [
+      { day: "Saturday", time: "9:30 – 11:00 am", history: "free most saturday mornings" },
+    ],
+  },
+};
+
 export function ScheduleProposalScreen() {
-  const app = useApp();
-  const plan = schedulePlans[app.schedulePace];
+  const [pace, setPace] = useState<1 | 2>(2);
+  const [confirmed, setConfirmed] = useState(false);
+  const [confirming, setConfirming] = useState(false);
+  const [calendarConnected, setCalendarConnected] = useState(false);
+  const [calendarChecked, setCalendarChecked] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const plan = schedulePlans[pace];
+
+  useEffect(() => {
+    fetch("/api/calendar/status")
+      .then((r) => r.json())
+      .then((d) => {
+        setCalendarConnected(d.connected ?? false);
+        setCalendarChecked(true);
+      })
+      .catch(() => setCalendarChecked(true));
+  }, []);
+
+  const handleAccept = useCallback(async () => {
+    setConfirming(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/schedule/confirm", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          goalTitle: "New job — 5 first rounds",
+          slots: plan.slots.map((s) => {
+            const timeMatch = s.time.match(/(\d{1,2}):(\d{2})\s*[–-]\s*(\d{1,2}):(\d{2})\s*(am|pm)/i);
+            const durationMinutes = timeMatch
+              ? (parseInt(timeMatch[3], 10) * 60 + parseInt(timeMatch[4], 10)) - (parseInt(timeMatch[1], 10) * 60 + parseInt(timeMatch[2], 10))
+              : 90;
+            return {
+              day: s.day,
+              time: s.time,
+              durationMinutes: Math.abs(durationMinutes) || 90,
+              title: "New job — work session",
+            };
+          }),
+        }),
+      });
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: "request failed" }));
+        setError(err.error ?? "Failed to confirm schedule");
+        return;
+      }
+
+      const data = await res.json();
+      setConfirmed(true);
+
+      if (data.errors?.length) {
+        setError(`Blocks created, but some calendar events failed: ${data.errors.join(", ")}`);
+      }
+    } catch {
+      setError("Something went wrong. Try again.");
+    } finally {
+      setConfirming(false);
+    }
+  }, [plan.slots]);
+
+  const handleConnectCalendar = useCallback(async () => {
+    const res = await fetch("/api/calendar/connect");
+    const data = await res.json();
+    if (data.authUrl) {
+      window.location.href = data.authUrl;
+    }
+  }, []);
 
   return (
     <div className="mobile-shell" style={{ position: "relative", height: "100dvh", display: "flex", flexDirection: "column", overflow: "hidden" }}>
@@ -47,25 +137,68 @@ export function ScheduleProposalScreen() {
           </div>
         </section>
 
-        {!app.scheduleConfirmed && (
-          <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-3)" }}>
-            <button className="btn btn-secondary" style={{ minHeight: 48, fontSize: 15, width: "100%" }} onClick={app.acceptSchedule}>
-              Accept these times
+        {calendarChecked && !calendarConnected && !confirmed && (
+          <div style={{ border: "1px solid var(--color-divider)", borderRadius: "var(--radius-lg)", padding: "var(--space-6)", animation: "noct-in 240ms ease both" }}>
+            <div style={{ fontSize: 14, lineHeight: 1.5, color: "color-mix(in srgb, var(--color-text) 60%, transparent)", textWrap: "pretty" }}>
+              Connect Google Calendar to write these blocks to your real calendar. You can still confirm without it — blocks will be saved here only.
+            </div>
+            <button
+              className="btn btn-secondary"
+              style={{ marginTop: "var(--space-4)", minHeight: 44, fontSize: 14, width: "100%" }}
+              onClick={handleConnectCalendar}
+            >
+              Connect Google Calendar
             </button>
-            <button className="btn btn-secondary" style={{ minHeight: 48, fontSize: 15, width: "100%" }} onClick={app.pickDifferentTimes}>
+          </div>
+        )}
+
+        {calendarConnected && !confirmed && (
+          <div style={{ fontSize: 12, color: "color-mix(in srgb, var(--color-accent) 70%, transparent)", display: "flex", alignItems: "center", gap: 6 }}>
+            <span style={{ width: 6, height: 6, borderRadius: "50%", background: "var(--color-accent)" }} />
+            Google Calendar connected — events will be written
+          </div>
+        )}
+
+        {error && (
+          <div style={{ fontSize: 13, color: "var(--color-neutral-500)", lineHeight: 1.5 }}>
+            {error}
+          </div>
+        )}
+
+        {!confirmed && (
+          <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-3)" }}>
+            <button
+              className="btn btn-secondary"
+              style={{ minHeight: 48, fontSize: 15, width: "100%", opacity: confirming ? 0.5 : 1 }}
+              disabled={confirming}
+              onClick={handleAccept}
+            >
+              {confirming ? "Confirming…" : "Accept these times"}
+            </button>
+            <button
+              className="btn btn-secondary"
+              style={{ minHeight: 48, fontSize: 15, width: "100%" }}
+              onClick={() => setConfirmed(false)}
+            >
               Pick different times
             </button>
-            <button className="btn btn-secondary" style={{ minHeight: 48, fontSize: 15, width: "100%" }} onClick={app.togglePace}>
+            <button
+              className="btn btn-secondary"
+              style={{ minHeight: 48, fontSize: 15, width: "100%" }}
+              onClick={() => setPace((p) => (p === 2 ? 1 : 2))}
+            >
               Go less often
             </button>
           </div>
         )}
 
-        {app.scheduleConfirmed && (
+        {confirmed && (
           <div style={{ border: "1px solid color-mix(in srgb, var(--color-accent) 40%, transparent)", borderRadius: "var(--radius-lg)", padding: "var(--space-6)", animation: "noct-in 260ms ease both" }}>
             <div style={{ fontFamily: "var(--font-heading)", fontWeight: 500, fontSize: 17 }}>Set. the blocks are in your calendar.</div>
             <div style={{ fontSize: 13, color: "color-mix(in srgb, var(--color-text) 55%, transparent)", marginTop: 6, textWrap: "pretty" }}>
-              the deadline is locked from here. you can still move any single block.
+              {calendarConnected
+                ? "events written to Google Calendar. you can still move any single block."
+                : "blocks saved. connect Google Calendar to sync them to your real calendar."}
             </div>
             <Link href="/" className="btn btn-secondary" style={{ marginTop: "var(--space-6)", minHeight: 46, fontSize: 15, width: "100%" }}>
               Back to home

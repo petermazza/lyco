@@ -1,0 +1,42 @@
+/* App-level semantic aliases over Nocturne tokens.
+   No raw values that Nocturne already carries — every entry resolves to a
+   design-system variable. Load AFTER the Nocturne stylesheet. */
+
+:root {
+  /* text roles */
+  --app-text: var(--color-text);
+  --app-text-secondary: color-mix(in srgb, var(--color-text) 70%, transparent);
+  --app-text-muted: color-mix(in srgb, var(--color-text) 50%, transparent);
+  --app-text-quiet: color-mix(in srgb, var(--color-text) 35%, transparent);
+  --app-text-accent: var(--color-accent-300);
+
+  /* lines and fills */
+  --app-hairline: var(--color-divider);
+  --app-track: color-mix(in srgb, var(--color-text) 9%, transparent);
+  --app-skeleton: color-mix(in srgb, var(--color-text) 8%, transparent);
+  --app-skeleton-strong: color-mix(in srgb, var(--color-text) 13%, transparent);
+  --app-prominent-border: color-mix(in srgb, var(--color-accent) 40%, transparent);
+
+  /* bars */
+  --app-bar-on-pace: var(--color-accent-500);
+  --app-bar-over: var(--color-neutral-500);
+  --app-bar-height: 8px;
+
+  /* screen rhythm */
+  --app-screen-pad-x: var(--space-6);
+  --app-screen-pad-top: 66px;
+  --app-screen-pad-bottom: 34px;
+  --app-section-gap: var(--space-8);
+  --app-stack-gap: var(--space-3);
+  --app-tap-min: 44px;
+
+  /* type sizes — two weights only: 400 body, 500 heading */
+  --app-size-display: 26px;
+  --app-size-title: 21px;
+  --app-size-heading: 17px;
+  --app-size-body: 15px;
+  --app-size-meta: 12.5px;
+  --app-size-micro: 11.5px;
+  --app-size-eyebrow: 10px;
+  --app-eyebrow-track: 0.12em;
+}

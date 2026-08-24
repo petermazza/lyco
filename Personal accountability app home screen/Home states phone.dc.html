@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="_ds/nocturne-f7d4f4b9-5efb-4327-8360-eae7fa398138/styles.css">
+<link rel="stylesheet" href="app-tokens.css">
+<script src="_ds/nocturne-f7d4f4b9-5efb-4327-8360-eae7fa398138/_ds_bundle.js"></script>
+<style>@keyframes noct-breathe{0%,100%{opacity:.5}50%{opacity:1}}@keyframes noct-in{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}</style>
+</helmet>
+<x-import component-from-global-scope="IOSDevice" from="./ios-frame.jsx" dark="{{ true }}" hint-size="390px,844px">
+<div style="height:100%;overflow-y:auto;background:var(--color-bg);color:var(--app-text);font-family:var(--font-body);padding:var(--app-screen-pad-top) var(--app-screen-pad-x) var(--app-screen-pad-bottom);display:flex;flex-direction:column;gap:var(--app-section-gap)">
+
+<header style="display:flex;align-items:baseline;justify-content:space-between;gap:12px">
+<div>
+<div style="font-size:19px;font-family:var(--font-heading);font-weight:500;letter-spacing:-0.015em">Morning, Sam</div>
+<div style="font-size:var(--app-size-meta);color:var(--app-text-muted);margin-top:2px">sunday 23 august · 9:04 am</div>
+</div>
+<button class="btn btn-ghost" style="font-size:13px;min-height:var(--app-tap-min)">talk</button>
+</header>
+
+<section>
+<div style="display:flex;align-items:center;gap:8px;margin-bottom:var(--space-3)">
+<span style="width:6px;height:6px;border-radius:50%;background:{{ dotColor }}"></span>
+<span style="font-size:var(--app-size-eyebrow);letter-spacing:var(--app-eyebrow-track);text-transform:uppercase;color:{{ dotTextColor }}">{{ nowEyebrow }}</span>
+</div>
+
+<sc-if value="{{ loading }}" hint-placeholder-val="{{ false }}">
+<div style="border:1px solid var(--app-hairline);border-radius:var(--radius-lg);padding:var(--space-6);display:flex;flex-direction:column;gap:var(--space-4);animation:noct-breathe 1.7s ease-in-out infinite">
+<div style="height:22px;width:74%;border-radius:var(--radius-sm);background:var(--app-skeleton-strong)"></div>
+<div style="height:12px;width:46%;border-radius:var(--radius-sm);background:var(--app-skeleton)"></div>
+<div style="height:3px;border-radius:2px;background:var(--app-skeleton)"></div>
+<div style="display:flex;gap:var(--app-stack-gap)">
+<div style="flex:1;height:46px;border-radius:var(--radius-md);background:var(--app-skeleton)"></div>
+<div style="flex:1;height:46px;border-radius:var(--radius-md);background:var(--app-skeleton)"></div>
+</div>
+</div>
+</sc-if>
+
+<sc-if value="{{ nowEmpty }}" hint-placeholder-val="{{ true }}">
+<div style="border:1px solid var(--app-prominent-border);border-radius:var(--radius-lg);padding:var(--space-6);display:flex;flex-direction:column;gap:var(--space-4);animation:noct-in 240ms ease both">
+<div>
+<div style="font-family:var(--font-heading);font-weight:500;font-size:var(--app-size-display);line-height:1.15;letter-spacing:-0.02em;text-wrap:pretty">{{ nowEmptyTitle }}</div>
+<div style="font-size:13px;color:var(--app-text-muted);margin-top:6px;text-wrap:pretty">{{ nowEmptyBody }}</div>
+</div>
+<button class="btn btn-secondary" style="min-height:46px;font-size:var(--app-size-body);width:100%">{{ nowEmptyAction }}</button>
+</div>
+</sc-if>
+</section>
+
+<section>
+<h6 style="margin:0 0 var(--space-4);color:color-mix(in srgb, var(--color-text) 45%, transparent)">Later today</h6>
+
+<sc-if value="{{ loading }}" hint-placeholder-val="{{ false }}">
+<div style="display:flex;flex-direction:column;gap:var(--space-2);animation:noct-breathe 1.7s ease-in-out .15s infinite">
+<sc-for list="{{ three }}" as="row" hint-placeholder-count="3">
+<div style="display:flex;align-items:center;gap:14px;padding:12px 0;background:linear-gradient(to right, transparent, var(--app-hairline) 24px, var(--app-hairline) calc(100% - 24px), transparent) no-repeat bottom / 100% 1px">
+<div style="height:10px;width:52px;flex:none;border-radius:var(--radius-sm);background:var(--app-skeleton)"></div>
+<div style="height:12px;flex:1;border-radius:var(--radius-sm);background:var(--app-skeleton);max-width:{{ row.w }}"></div>
+</div>
+</sc-for>
+</div>
+</sc-if>
+
+<sc-if value="{{ laterEmpty }}" hint-placeholder-val="{{ true }}">
+<div style="display:flex;flex-direction:column;gap:var(--space-4)">
+<div style="font-size:var(--app-size-body);line-height:1.5;color:var(--app-text-secondary);text-wrap:pretty">{{ laterEmptyBody }}</div>
+<div style="display:flex;flex-wrap:wrap;gap:var(--app-stack-gap)">
+<button class="btn btn-secondary" style="min-height:var(--app-tap-min);font-size:14px;border-radius:22px">Add a block</button>
+<button class="btn btn-ghost" style="min-height:var(--app-tap-min);font-size:14px;border-radius:22px">Read my calendar</button>
+</div>
+</div>
+</sc-if>
+
+<sc-if value="{{ laterFilled }}" hint-placeholder-val="{{ false }}">
+<div style="display:flex;flex-direction:column;gap:var(--space-2)">
+<sc-for list="{{ later }}" as="item" hint-placeholder-count="2">
+<div style="display:flex;align-items:baseline;gap:14px;padding:10px 0;background:linear-gradient(to right, transparent, var(--app-hairline) 24px, var(--app-hairline) calc(100% - 24px), transparent) no-repeat bottom / 100% 1px">
+<span style="font-size:var(--app-size-meta);font-variant-numeric:tabular-nums;color:var(--app-text-quiet);width:62px;flex:none">{{ item.time }}</span>
+<span style="font-size:var(--app-size-body);line-height:1.3;flex:1;text-wrap:pretty">{{ item.title }}</span>
+<span style="font-size:var(--app-size-micro);color:var(--app-text-quiet)">{{ item.len }}</span>
+</div>
+</sc-for>
+</div>
+</sc-if>
+</section>
+
+<section>
+<h6 style="margin:0 0 var(--space-4);color:color-mix(in srgb, var(--color-text) 45%, transparent)">Spending this month</h6>
+
+<sc-if value="{{ loading }}" hint-placeholder-val="{{ false }}">
+<div style="display:flex;flex-direction:column;gap:var(--space-6);animation:noct-breathe 1.7s ease-in-out .3s infinite">
+<sc-for list="{{ two }}" as="row" hint-placeholder-count="2">
+<div>
+<div style="display:flex;justify-content:space-between;gap:10px">
+<div style="height:12px;width:86px;border-radius:var(--radius-sm);background:var(--app-skeleton)"></div>
+<div style="height:11px;width:62px;border-radius:var(--radius-sm);background:var(--app-skeleton)"></div>
+</div>
+<div style="height:var(--app-bar-height);border-radius:4px;background:var(--app-skeleton);margin-top:9px"></div>
+</div>
+</sc-for>
+</div>
+</sc-if>
+
+<sc-if value="{{ spendEmpty }}" hint-placeholder-val="{{ true }}">
+<div style="display:flex;flex-direction:column;gap:var(--space-4)">
+<div style="font-size:var(--app-size-body);line-height:1.5;color:var(--app-text-secondary);text-wrap:pretty">Two categories you want to watch, and a monthly number for each. I'll track them quietly against what your bank shows.</div>
+<div style="display:flex;flex-direction:column;gap:var(--space-4)">
+<sc-for list="{{ spendHints }}" as="hint" hint-placeholder-count="2">
+<div>
+<div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px">
+<span style="font-size:var(--app-size-body);color:var(--app-text-secondary)">{{ hint.label }}</span>
+<span style="font-size:var(--app-size-meta);color:var(--app-text-quiet)">no target yet</span>
+</div>
+<div style="height:var(--app-bar-height);border-radius:4px;background:var(--app-track);margin-top:9px"></div>
+</div>
+</sc-for>
+</div>
+<button class="btn btn-secondary" style="min-height:var(--app-tap-min);font-size:14px;border-radius:22px;align-self:flex-start">Set a spending target</button>
+</div>
+</sc-if>
+
+<sc-if value="{{ spendFilled }}" hint-placeholder-val="{{ false }}">
+<div>
+<div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px">
+<span style="font-size:var(--app-size-body)">Eating out</span>
+<span style="font-size:13px;font-variant-numeric:tabular-nums;color:var(--app-text-secondary)">$186 of $240</span>
+</div>
+<div style="position:relative;height:var(--app-bar-height);border-radius:4px;background:var(--app-track);margin-top:9px;overflow:hidden">
+<div style="height:100%;width:77.5%;border-radius:4px;background:var(--app-bar-on-pace)"></div>
+</div>
+<div style="font-size:var(--app-size-micro);color:var(--app-text-quiet);margin-top:7px">about level with the month · 8 days left</div>
+</div>
+</sc-if>
+</section>
+
+<section>
+<h6 style="margin:0 0 var(--space-4);color:color-mix(in srgb, var(--color-text) 45%, transparent)">Coming up</h6>
+
+<sc-if value="{{ loading }}" hint-placeholder-val="{{ false }}">
+<div style="border:1px solid var(--app-hairline);border-radius:var(--radius-lg);padding:var(--space-4) var(--space-6);display:flex;align-items:center;gap:var(--space-6);animation:noct-breathe 1.7s ease-in-out .45s infinite">
+<div style="width:34px;height:38px;border-radius:var(--radius-sm);background:var(--app-skeleton);flex:none"></div>
+<div style="flex:1;display:flex;flex-direction:column;gap:8px">
+<div style="height:12px;width:58%;border-radius:var(--radius-sm);background:var(--app-skeleton)"></div>
+<div style="height:10px;width:82%;border-radius:var(--radius-sm);background:var(--app-skeleton)"></div>
+</div>
+</div>
+</sc-if>
+
+<sc-if value="{{ occasionEmpty }}" hint-placeholder-val="{{ true }}">
+<div style="border:1px solid var(--app-hairline);border-radius:var(--radius-lg);padding:var(--space-6);display:flex;flex-direction:column;gap:var(--space-4)">
+<div style="display:flex;align-items:center;gap:var(--space-6)">
+<div style="text-align:center;flex:none;width:38px">
+<div style="font-family:var(--font-heading);font-weight:500;font-size:30px;line-height:1;color:var(--app-text-quiet)">—</div>
+<div style="font-size:var(--app-size-eyebrow);letter-spacing:0.1em;text-transform:uppercase;color:var(--app-text-quiet);margin-top:4px">days</div>
+</div>
+<div style="flex:1;font-size:var(--app-size-body);line-height:1.45;color:var(--app-text-secondary);text-wrap:pretty">Birthdays, anniversaries, anything you'd rather not remember at the last minute.</div>
+</div>
+<button class="btn btn-secondary" style="min-height:var(--app-tap-min);font-size:14px;border-radius:22px;align-self:flex-start">Add an occasion</button>
+</div>
+</sc-if>
+
+<sc-if value="{{ occasionFilled }}" hint-placeholder-val="{{ false }}">
+<div style="border:1px solid var(--app-hairline);border-radius:var(--radius-lg);padding:var(--space-4) var(--space-6);display:flex;align-items:center;gap:var(--space-6)">
+<div style="text-align:center;flex:none">
+<div style="font-family:var(--font-heading);font-weight:500;font-size:30px;line-height:1;color:var(--app-text-accent);font-variant-numeric:tabular-nums">12</div>
+<div style="font-size:var(--app-size-eyebrow);letter-spacing:0.1em;text-transform:uppercase;color:var(--app-text-quiet);margin-top:4px">days</div>
+</div>
+<div style="flex:1;min-width:0">
+<div style="font-size:var(--app-size-body);line-height:1.25">Mom's birthday</div>
+<div style="font-size:var(--app-size-meta);color:var(--app-text-muted);margin-top:3px;text-wrap:pretty">gift idea logged: the ceramics class.</div>
+</div>
+</div>
+</sc-if>
+</section>
+
+<footer style="margin-top:auto;padding-top:var(--space-6);background:linear-gradient(to right, transparent, var(--app-hairline) 24px, var(--app-hairline) calc(100% - 24px), transparent) no-repeat top / 100% 1px">
+<sc-if value="{{ loading }}" hint-placeholder-val="{{ false }}">
+<div style="animation:noct-breathe 1.7s ease-in-out .6s infinite">
+<div style="display:flex;gap:5px;margin-bottom:10px">
+<sc-for list="{{ dots }}" as="d" hint-placeholder-count="18">
+<span style="width:5px;height:5px;border-radius:50%;background:var(--app-skeleton-strong)"></span>
+</sc-for>
+</div>
+<div style="height:11px;width:64%;border-radius:var(--radius-sm);background:var(--app-skeleton)"></div>
+</div>
+</sc-if>
+
+<sc-if value="{{ ratioEmpty }}" hint-placeholder-val="{{ true }}">
+<div style="font-size:var(--app-size-meta);line-height:1.5;color:var(--app-text-muted);text-wrap:pretty">{{ ratioEmptyLine }}</div>
+</sc-if>
+</footer>
+
+</div>
+</x-import>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:&quot;420&quot;,&quot;height&quot;:&quot;900&quot;},&quot;mode&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;loading&quot;,&quot;empty&quot;,&quot;partial&quot;],&quot;default&quot;:&quot;empty&quot;,&quot;tsType&quot;:&quot;string&quot;}}">
+class Component extends DCLogic {
+  renderVals() {
+    const mode = this.props.mode ?? "empty";
+    const loading = mode === "loading";
+    const partial = mode === "partial";
+    const empty = mode === "empty";
+    const dots = [];
+    for (let i = 0; i < 18; i++) dots.push({ i });
+    return {
+      loading,
+      three: [{ w: "72%" }, { w: "58%" }, { w: "64%" }],
+      two: [{}, {}],
+      dots,
+
+      dotColor: loading ? "var(--app-skeleton-strong)" : (partial ? "var(--color-accent)" : "var(--app-text-quiet)"),
+      dotTextColor: loading ? "var(--app-text-quiet)" : (partial ? "var(--color-accent)" : "var(--app-text-quiet)"),
+      nowEyebrow: loading ? "reading your calendar" : (partial ? "next up" : "right now"),
+
+      nowEmpty: !loading,
+      nowEmptyTitle: partial ? "Nothing until 6:00 pm" : "This is where the next block goes",
+      nowEmptyBody: partial
+        ? "your calendar is clear this morning. you can hold time for the job project, or leave it open."
+        : "tell me one thing you want to make progress on and I'll find the time for it.",
+      nowEmptyAction: partial ? "Hold an hour this morning" : "Start a project",
+
+      laterEmpty: empty,
+      laterFilled: partial,
+      laterEmptyBody: "Blocks you've agreed to show up here in order, so the day reads top to bottom.",
+      later: [
+        { time: "6:00 pm", title: "Rewrite the résumé summary", len: "90m" },
+        { time: "8:30 pm", title: "Call Dad", len: "20m" }
+      ],
+
+      spendEmpty: !loading,
+      spendHints: [{ label: "Eating out" }, { label: "Rideshare" }],
+      spendFilled: false,
+
+      occasionEmpty: !loading && !partial,
+      occasionFilled: partial,
+
+      ratioEmpty: !loading,
+      ratioEmptyLine: partial
+        ? "kept blocks will show here once the first week is behind you."
+        : "once blocks start running, this line keeps a plain count of how many you kept."
+    };
+  }
+}
+</script>
+</body>
+</html>
