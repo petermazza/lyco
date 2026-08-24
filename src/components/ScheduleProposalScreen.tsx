@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { StatusBar } from "./StatusBar";
 
 interface Slot {
@@ -29,28 +30,54 @@ const schedulePlans: Record<number, { reasoning: string; sessions: string; slots
 };
 
 export function ScheduleProposalScreen() {
+  const router = useRouter();
   const [pace, setPace] = useState<1 | 2>(2);
   const [confirmed, setConfirmed] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const [calendarConnected, setCalendarConnected] = useState(false);
   const [calendarChecked, setCalendarChecked] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [authed, setAuthed] = useState<boolean | null>(null);
 
   const plan = schedulePlans[pace];
 
   useEffect(() => {
-    fetch("/api/calendar/status")
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 8000);
+    fetch("/api/auth/me", { signal: controller.signal })
+      .then((r) => r.json())
+      .then((body) => {
+        if (!body.user) {
+          router.replace("/");
+          return;
+        }
+        setAuthed(true);
+      })
+      .catch(() => {
+        setAuthed(false);
+      })
+      .finally(() => clearTimeout(timeoutId));
+  }, [router]);
+
+  useEffect(() => {
+    if (authed !== true) return;
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 8000);
+    fetch("/api/calendar/status", { signal: controller.signal })
       .then((r) => r.json())
       .then((d) => {
         setCalendarConnected(d.connected ?? false);
         setCalendarChecked(true);
       })
-      .catch(() => setCalendarChecked(true));
-  }, []);
+      .catch(() => setCalendarChecked(true))
+      .finally(() => clearTimeout(timeoutId));
+  }, [authed]);
 
   const handleAccept = useCallback(async () => {
     setConfirming(true);
     setError(null);
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 15000);
     try {
       const res = await fetch("/api/schedule/confirm", {
         method: "POST",
@@ -58,7 +85,7 @@ export function ScheduleProposalScreen() {
         body: JSON.stringify({
           goalTitle: "New job — 5 first rounds",
           slots: plan.slots.map((s) => {
-            const timeMatch = s.time.match(/(\d{1,2}):(\d{2})\s*[–-]\s*(\d{1,2}):(\d{2})\s*(am|pm)/i);
+            const timeMatch = s.time.match(/(\d{1,2}):(\d{2})\s*[\u2013-]\s*(\d{1,2}):(\d{2})\s*(am|pm)/i);
             const durationMinutes = timeMatch
               ? (parseInt(timeMatch[3], 10) * 60 + parseInt(timeMatch[4], 10)) - (parseInt(timeMatch[1], 10) * 60 + parseInt(timeMatch[2], 10))
               : 90;
@@ -70,6 +97,7 @@ export function ScheduleProposalScreen() {
             };
           }),
         }),
+        signal: controller.signal,
       });
 
       if (!res.ok) {
@@ -87,6 +115,7 @@ export function ScheduleProposalScreen() {
     } catch {
       setError("Something went wrong. Try again.");
     } finally {
+      clearTimeout(timeoutId);
       setConfirming(false);
     }
   }, [plan.slots]);
@@ -98,6 +127,17 @@ export function ScheduleProposalScreen() {
       window.location.href = data.authUrl;
     }
   }, []);
+
+  if (authed !== true) {
+    return (
+      <div className="mobile-shell" style={{ position: "relative", height: "100dvh", display: "flex", flexDirection: "column", overflow: "hidden" }}>
+        <StatusBar />
+        <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <span style={{ animation: "noct-pulse 1.4s ease-in-out infinite", fontSize: 13, color: "var(--app-text-quiet)" }}>loading…</span>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="mobile-shell" style={{ position: "relative", height: "100dvh", display: "flex", flexDirection: "column", overflow: "hidden" }}>

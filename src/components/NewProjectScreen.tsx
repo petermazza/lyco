@@ -2,7 +2,7 @@
 
 import React, { useState, useRef, useEffect, useCallback } from "react";
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
+import { useSearchParams, useRouter } from "next/navigation";
 import { StatusBar } from "./StatusBar";
 
 interface Message {
@@ -13,6 +13,8 @@ interface Message {
 
 export function NewProjectScreen() {
   const searchParams = useSearchParams();
+  const router = useRouter();
+  const [authed, setAuthed] = useState<boolean | null>(null);
   const [messages, setMessages] = useState<Message[]>([
     { who: "bot", text: "What are you working on? Tell me what you want to get done.", isAsk: true },
   ]);
@@ -27,14 +29,33 @@ export function NewProjectScreen() {
     if (el) el.scrollTop = el.scrollHeight;
   }, [messages, loading]);
 
+  useEffect(() => {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 8000);
+    fetch("/api/auth/me", { signal: controller.signal })
+      .then((r) => r.json())
+      .then((body) => {
+        if (!body.user) {
+          router.replace("/");
+          return;
+        }
+        setAuthed(true);
+      })
+      .catch(() => {
+        setAuthed(false);
+      })
+      .finally(() => clearTimeout(timeoutId));
+  }, [router]);
+
   const sentRef = useRef(false);
   useEffect(() => {
+    if (authed !== true) return;
     const q = searchParams.get("q");
     if (q && !sentRef.current) {
       sentRef.current = true;
       sendMessage(q);
     }
-  }, [searchParams]);
+  }, [searchParams, authed]);
 
   const sendMessage = useCallback(async (text: string) => {
     if (!text.trim() || loading) return;
@@ -45,6 +66,8 @@ export function NewProjectScreen() {
     setInput("");
     setLoading(true);
 
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 30000);
     try {
       const res = await fetch("/api/chat", {
         method: "POST",
@@ -55,6 +78,7 @@ export function NewProjectScreen() {
             content: m.text,
           })),
         }),
+        signal: controller.signal,
       });
 
       if (!res.ok) {
@@ -76,6 +100,7 @@ export function NewProjectScreen() {
     } catch {
       setMessages((prev) => [...prev, { who: "bot", text: "Something went wrong. Try again." }]);
     } finally {
+      clearTimeout(timeoutId);
       setLoading(false);
       inputRef.current?.focus();
     }
@@ -88,6 +113,17 @@ export function NewProjectScreen() {
 
   const quiet = "color-mix(in srgb, var(--color-text) 28%, transparent)";
   const set = "color-mix(in srgb, var(--color-text) 75%, transparent)";
+
+  if (authed !== true) {
+    return (
+      <div className="mobile-shell" style={{ position: "relative", height: "100dvh", display: "flex", flexDirection: "column", overflow: "hidden" }}>
+        <StatusBar />
+        <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <span style={{ animation: "noct-pulse 1.4s ease-in-out infinite", fontSize: 13, color: "var(--app-text-quiet)" }}>loading…</span>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="mobile-shell" style={{ position: "relative", height: "100dvh", display: "flex", flexDirection: "column", overflow: "hidden" }}>

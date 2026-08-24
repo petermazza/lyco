@@ -78,32 +78,33 @@ export function HomeScreen() {
 
   const fetchData = useCallback(async () => {
     setState("loading");
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 8000);
     try {
-      const res = await fetch("/api/home");
+      const res = await fetch("/api/home", { signal: controller.signal });
       if (res.status === 401) {
         setAuthed(false);
+        setState("loaded");
+        return;
+      }
+      if (!res.ok) {
+        setState("error");
         return;
       }
       const json = await res.json();
       setData(json);
+      setAuthed(true);
       setState("loaded");
     } catch {
       setState("error");
+    } finally {
+      clearTimeout(timeoutId);
     }
   }, []);
 
   useEffect(() => {
-    fetch("/api/auth/me")
-      .then((r) => r.json())
-      .then((body) => {
-        setAuthed(!!body.user);
-      })
-      .catch(() => setAuthed(false));
-  }, []);
-
-  useEffect(() => {
-    if (authed) fetchData();
-  }, [authed, fetchData]);
+    fetchData();
+  }, [fetchData]);
 
   // ─── Actions ───────────────────────────────────────────────
 

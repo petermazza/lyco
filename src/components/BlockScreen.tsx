@@ -1,23 +1,74 @@
 "use client";
 
-import React from "react";
+import React, { useState, useCallback, useRef } from "react";
 import Link from "next/link";
-import { useApp, blockScript, blockProposalText } from "@/context/AppContext";
 import { StatusBar } from "./StatusBar";
 
+interface ChatMessage {
+  who: "user" | "bot";
+  text: string;
+  ask?: boolean;
+}
+
+interface ScriptNode {
+  ask: string;
+  hint?: string;
+  replies: { label: string }[];
+}
+
+const blockScript: ScriptNode[] = [
+  {
+    ask: "No problem. What is in front of you right now?",
+    replies: [{ label: "A blank page" }, { label: "A draft I don't like" }],
+  },
+  {
+    ask: "Then the summary is the wrong place to start — it is the last thing you write, not the first. About seventy minutes left. Want the smaller version?",
+    replies: [{ label: "Yes, smaller" }, { label: "What is it first" }],
+  },
+];
+
+const blockProposalText = "List three things you actually did in your last role. Plain sentences, nothing polished.";
+
+type BlockMode = "running" | "help" | "settled" | "closed";
+
 export function BlockScreen() {
-  const app = useApp();
-  const s = {
-    mode: app.blockMode,
-    step: app.blockStep,
-    log: app.blockLog,
-    task: app.blockTask,
-    closed: app.blockClosed,
-  };
+  const [mode, setMode] = useState<BlockMode>("running");
+  const [step, setStep] = useState(0);
+  const [log, setLog] = useState<ChatMessage[]>([]);
+  const [task, setTask] = useState("Rewrite the résumé summary");
+  const [closed, setClosed] = useState<"done" | "moved" | null>(null);
+  const [toast, setToast] = useState<string | null>(null);
+  const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const showToast = useCallback((msg: string) => {
+    if (toastTimer.current) clearTimeout(toastTimer.current);
+    setToast(msg);
+    toastTimer.current = setTimeout(() => setToast(null), 2800);
+  }, []);
+
+  const blockReply = useCallback((replyIndex: number) => {
+    const node = blockScript[step];
+    if (!node) return;
+    const reply = node.replies[replyIndex];
+    setLog((l) => [...l, { who: "bot", text: node.ask, ask: true }, { who: "user", text: reply.label }]);
+    setStep((s) => s + 1);
+  }, [step]);
+
+  const acceptBlockPlan = useCallback(() => {
+    setMode("settled");
+    setTask("List three things you did in the last role");
+  }, []);
+
+  const closeBlock = useCallback((result: "done" | "moved") => {
+    setMode("closed");
+    setClosed(result);
+  }, []);
+
+  const s = { mode, step, log, task, closed };
 
   const node = s.mode === "help" && s.step < blockScript.length ? blockScript[s.step] : null;
   const showProposal = s.mode === "help" && s.step >= blockScript.length;
-  const log = [...s.log, ...(node ? [{ who: "bot" as const, text: node.ask, ask: true }] : [])];
+  const displayLog = [...s.log, ...(node ? [{ who: "bot" as const, text: node.ask, ask: true }] : [])];
 
   return (
     <div className="mobile-shell" style={{ position: "relative", height: "100dvh", display: "flex", flexDirection: "column", overflow: "hidden" }}>
@@ -48,13 +99,13 @@ export function BlockScreen() {
         {/* running mode */}
         {s.mode === "running" && (
           <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-3)" }}>
-            <button className="btn btn-secondary" style={{ minHeight: 48, fontSize: 15, width: "100%" }} onClick={() => app.closeBlock("done")}>
+            <button className="btn btn-secondary" style={{ minHeight: 48, fontSize: 15, width: "100%" }} onClick={() => closeBlock("done")}>
               Mark done
             </button>
-            <button className="btn btn-secondary" style={{ minHeight: 48, fontSize: 15, width: "100%" }} onClick={() => app.showToast("moved to tomorrow, 7:00 pm.")}>
+            <button className="btn btn-secondary" style={{ minHeight: 48, fontSize: 15, width: "100%" }} onClick={() => showToast("moved to tomorrow, 7:00 pm.")}>
               Move it
             </button>
-            <button className="btn btn-secondary" style={{ minHeight: 48, fontSize: 15, width: "100%" }} onClick={() => app.setBlockMode("help")}>
+            <button className="btn btn-secondary" style={{ minHeight: 48, fontSize: 15, width: "100%" }} onClick={() => setMode("help")}>
               I don't know how to start
             </button>
           </div>
@@ -63,7 +114,7 @@ export function BlockScreen() {
         {/* help mode */}
         {s.mode === "help" && (
           <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-8)" }}>
-            {log.map((m, i) => (
+            {displayLog.map((m, i) => (
               <div key={i}>
                 {m.who === "user" && (
                   <div style={{ display: "flex", justifyContent: "flex-end" }}>
@@ -92,7 +143,7 @@ export function BlockScreen() {
                     key={i}
                     className="btn btn-primary"
                     style={{ minHeight: 44, borderRadius: 22, fontSize: 14, paddingInline: "var(--space-6)" }}
-                    onClick={() => app.blockReply(i)}
+                    onClick={() => blockReply(i)}
                   >
                     {r.label}
                   </button>
@@ -109,7 +160,7 @@ export function BlockScreen() {
                 <div style={{ fontSize: 12.5, color: "color-mix(in srgb, var(--color-text) 50%, transparent)", marginTop: 8 }}>
                   fifteen minutes of work, and the summary writes itself off the back of it.
                 </div>
-                <button className="btn btn-secondary" style={{ minHeight: 46, fontSize: 15, width: "100%", marginTop: "var(--space-6)" }} onClick={app.acceptBlockPlan}>
+                <button className="btn btn-secondary" style={{ minHeight: 46, fontSize: 15, width: "100%", marginTop: "var(--space-6)" }} onClick={acceptBlockPlan}>
                   Okay, starting that
                 </button>
               </div>
@@ -124,10 +175,10 @@ export function BlockScreen() {
               That is the block now. I will check in at 8:30 — nothing else to decide.
             </div>
             <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-3)" }}>
-              <button className="btn btn-secondary" style={{ minHeight: 48, fontSize: 15, width: "100%" }} onClick={() => app.closeBlock("done")}>
+              <button className="btn btn-secondary" style={{ minHeight: 48, fontSize: 15, width: "100%" }} onClick={() => closeBlock("done")}>
                 Mark done
               </button>
-              <button className="btn btn-secondary" style={{ minHeight: 48, fontSize: 15, width: "100%" }} onClick={() => app.closeBlock("moved")}>
+              <button className="btn btn-secondary" style={{ minHeight: 48, fontSize: 15, width: "100%" }} onClick={() => closeBlock("moved")}>
                 Move it
               </button>
             </div>
@@ -161,6 +212,26 @@ export function BlockScreen() {
           {s.mode === "help" ? "this conversation ends with one thing to do." : "nothing else is due today."}
         </div>
       </div>
+
+      {toast && (
+        <div
+          style={{
+            position: "absolute",
+            left: 18,
+            right: 18,
+            bottom: 44,
+            zIndex: 60,
+            background: "var(--color-surface)",
+            borderRadius: "var(--radius-md)",
+            padding: "12px 14px",
+            fontSize: 13,
+            border: "1px solid var(--app-hairline)",
+            animation: "noct-fade 240ms ease both",
+          }}
+        >
+          {toast}
+        </div>
+      )}
     </div>
   );
 }
