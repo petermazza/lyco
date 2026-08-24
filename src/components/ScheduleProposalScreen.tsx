@@ -3,7 +3,6 @@
 import React, { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { StatusBar } from "./StatusBar";
 
 interface Slot {
   day: string;
@@ -131,7 +130,6 @@ export function ScheduleProposalScreen() {
   if (authed !== true) {
     return (
       <div className="mobile-shell" style={{ position: "relative", height: "100dvh", display: "flex", flexDirection: "column", overflow: "hidden" }}>
-        <StatusBar />
         <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center" }}>
           <span style={{ animation: "noct-pulse 1.4s ease-in-out infinite", fontSize: 13, color: "var(--app-text-quiet)" }}>loading…</span>
         </div>
@@ -142,7 +140,6 @@ export function ScheduleProposalScreen() {
   return (
     <div className="mobile-shell" style={{ position: "relative", height: "100dvh", display: "flex", flexDirection: "column", overflow: "hidden" }}>
       <div style={{ flex: 1, overflowY: "auto", padding: "0 20px 34px", display: "flex", flexDirection: "column", gap: "var(--space-8)" }}>
-        <StatusBar />
 
         <header>
           <div style={{ fontFamily: "var(--font-heading)", fontWeight: 500, fontSize: 20, lineHeight: 1.25, letterSpacing: "-0.015em", textWrap: "pretty" }}>

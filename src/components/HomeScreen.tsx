@@ -3,7 +3,6 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { StatusBar } from "./StatusBar";
 import { deriveSections, type SectionVisibility } from "@/lib/homeSections";
 
 // ─── Types ───────────────────────────────────────────────────
@@ -176,7 +175,6 @@ export function HomeScreen() {
     return (
       <div className="mobile-shell" style={{ position: "relative", height: "100dvh", overflow: "hidden" }}>
         <div style={{ height: "100%", overflowY: "auto", padding: "0 18px 44px", display: "flex", flexDirection: "column", gap: "var(--space-8)" }}>
-          <StatusBar />
           <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", flex: 1, gap: "var(--space-6)" }}>
             <div style={{ fontFamily: "var(--font-heading)", fontWeight: 500, fontSize: 28, letterSpacing: "-0.02em" }}>lyco</div>
             <div style={{ fontSize: 14, color: "var(--app-text-muted)", textAlign: "center", maxWidth: 260 }}>
@@ -245,8 +243,6 @@ export function HomeScreen() {
           gap: "var(--space-8)",
         }}
       >
-        <StatusBar />
-
         {/* ─── Header ─────────────────────────────────────────── */}
         <header style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 12, padding: "4px 0 0" }}>
           <div>

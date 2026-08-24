@@ -3,7 +3,6 @@
 import React, { useState, useRef, useEffect, useCallback } from "react";
 import Link from "next/link";
 import { useSearchParams, useRouter } from "next/navigation";
-import { StatusBar } from "./StatusBar";
 
 interface Message {
   who: "user" | "bot";
@@ -117,7 +116,6 @@ export function NewProjectScreen() {
   if (authed !== true) {
     return (
       <div className="mobile-shell" style={{ position: "relative", height: "100dvh", display: "flex", flexDirection: "column", overflow: "hidden" }}>
-        <StatusBar />
         <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center" }}>
           <span style={{ animation: "noct-pulse 1.4s ease-in-out infinite", fontSize: 13, color: "var(--app-text-quiet)" }}>loading…</span>
         </div>
@@ -127,8 +125,6 @@ export function NewProjectScreen() {
 
   return (
     <div className="mobile-shell" style={{ position: "relative", height: "100dvh", display: "flex", flexDirection: "column", overflow: "hidden" }}>
-      <StatusBar />
-
       <header style={{ flex: "none", padding: "0 20px 14px", display: "flex", alignItems: "center", gap: 14 }}>
         <Link href="/" className="btn btn-ghost" style={{ fontSize: 13, minHeight: 44, paddingInline: 0 }}>
           Close

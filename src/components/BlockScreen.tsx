@@ -2,7 +2,6 @@
 
 import React, { useState, useCallback, useRef } from "react";
 import Link from "next/link";
-import { StatusBar } from "./StatusBar";
 
 interface ChatMessage {
   who: "user" | "bot";
@@ -73,8 +72,6 @@ export function BlockScreen() {
   return (
     <div className="mobile-shell" style={{ position: "relative", height: "100dvh", display: "flex", flexDirection: "column", overflow: "hidden" }}>
       <div style={{ flex: 1, overflowY: "auto", padding: "0 20px 34px", display: "flex", flexDirection: "column", gap: "var(--space-8)" }}>
-        <StatusBar />
-
         <header>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
             <span style={{ width: 6, height: 6, borderRadius: "50%", background: "var(--color-accent)" }} />
