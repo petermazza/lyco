@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/session";
 import { query } from "@/lib/db";
+import { isCalendarConnected } from "@/lib/calendar/google";
 
 // ─── Helpers ─────────────────────────────────────────────────
 
@@ -48,6 +49,8 @@ function daysInMonth(date: Date): number {
 interface HomeResponse {
   greeting: string;
   dateLabel: string;
+  hasGoals: boolean;
+  calendarConnected: boolean;
   currentBlock: {
     id: string;
     title: string;
@@ -83,6 +86,14 @@ export async function GET() {
   const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   const todayEnd = new Date(todayStart);
   todayEnd.setDate(todayEnd.getDate() + 1);
+
+  // ─── Goals + calendar status ───────────────────────────────
+  const goalRows = await query<{ count: string }>(
+    `SELECT COUNT(*) AS count FROM goals WHERE user_id = $1 AND status = 'active'`,
+    [userId]
+  );
+  const hasGoals = parseInt(goalRows[0]?.count ?? "0", 10) > 0;
+  const calendarConnected = await isCalendarConnected(userId);
 
   // ─── Current block + later today ───────────────────────────
   const blocks = await query<{
@@ -227,6 +238,8 @@ export async function GET() {
   const response: HomeResponse = {
     greeting: greetingFor(now, user.name),
     dateLabel: formatDateLabel(now),
+    hasGoals,
+    calendarConnected,
     currentBlock,
     laterToday,
     spending,

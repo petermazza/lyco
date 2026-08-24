@@ -63,6 +63,35 @@
   --shadow-sm: 0 0 0 1px #3f424d;
   --shadow-md: 0 0 0 1px #595d6c, 0 6px 18px rgba(0,0,0,0.55);
   --shadow-lg: 0 0 0 1px #9397ab, 0 16px 40px rgba(0,0,0,0.65);
+
+  /* App-level semantic aliases over Nocturne tokens */
+  --app-text: var(--color-text);
+  --app-text-secondary: color-mix(in srgb, var(--color-text) 70%, transparent);
+  --app-text-muted: color-mix(in srgb, var(--color-text) 50%, transparent);
+  --app-text-quiet: color-mix(in srgb, var(--color-text) 35%, transparent);
+  --app-text-accent: var(--color-accent-300);
+  --app-hairline: var(--color-divider);
+  --app-track: color-mix(in srgb, var(--color-text) 9%, transparent);
+  --app-skeleton: color-mix(in srgb, var(--color-text) 8%, transparent);
+  --app-skeleton-strong: color-mix(in srgb, var(--color-text) 13%, transparent);
+  --app-prominent-border: color-mix(in srgb, var(--color-accent) 40%, transparent);
+  --app-bar-on-pace: var(--color-accent-500);
+  --app-bar-over: var(--color-neutral-500);
+  --app-bar-height: 8px;
+  --app-screen-pad-x: var(--space-6);
+  --app-screen-pad-top: 66px;
+  --app-screen-pad-bottom: 34px;
+  --app-section-gap: var(--space-8);
+  --app-stack-gap: var(--space-3);
+  --app-tap-min: 44px;
+  --app-size-display: 26px;
+  --app-size-title: 21px;
+  --app-size-heading: 17px;
+  --app-size-body: 15px;
+  --app-size-meta: 12.5px;
+  --app-size-micro: 11.5px;
+  --app-size-eyebrow: 10px;
+  --app-eyebrow-track: 0.12em;
 }
 
 *, *::before, *::after { box-sizing: border-box; }
@@ -196,6 +225,10 @@ textarea.input { min-height: 90px; resize: vertical; }
 @keyframes noct-pulse {
   0%, 100% { opacity: 0.3; }
   50% { opacity: 0.6; }
+}
+@keyframes noct-breathe {
+  0%, 100% { opacity: 0.55; }
+  50% { opacity: 1; }
 }
 
 /* — mobile shell — */

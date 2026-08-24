@@ -1,5 +1,10 @@
+import { Suspense } from "react";
 import { NewProjectScreen } from "@/components/NewProjectScreen";
 
 export default function Page() {
-  return <NewProjectScreen />;
+  return (
+    <Suspense>
+      <NewProjectScreen />
+    </Suspense>
+  );
 }

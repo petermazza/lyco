@@ -2,6 +2,7 @@
 
 import React, { useState, useRef, useEffect, useCallback } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { StatusBar } from "./StatusBar";
 
 interface Message {
@@ -11,6 +12,7 @@ interface Message {
 }
 
 export function NewProjectScreen() {
+  const searchParams = useSearchParams();
   const [messages, setMessages] = useState<Message[]>([
     { who: "bot", text: "What are you working on? Tell me what you want to get done.", isAsk: true },
   ]);
@@ -24,6 +26,15 @@ export function NewProjectScreen() {
     const el = scrollRef.current;
     if (el) el.scrollTop = el.scrollHeight;
   }, [messages, loading]);
+
+  const sentRef = useRef(false);
+  useEffect(() => {
+    const q = searchParams.get("q");
+    if (q && !sentRef.current) {
+      sentRef.current = true;
+      sendMessage(q);
+    }
+  }, [searchParams]);
 
   const sendMessage = useCallback(async (text: string) => {
     if (!text.trim() || loading) return;

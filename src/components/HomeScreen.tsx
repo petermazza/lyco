@@ -2,13 +2,17 @@
 
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { StatusBar } from "./StatusBar";
+import { deriveSections, type SectionVisibility } from "@/lib/homeSections";
 
 // ─── Types ───────────────────────────────────────────────────
 
 interface HomeData {
   greeting: string;
   dateLabel: string;
+  hasGoals: boolean;
+  calendarConnected: boolean;
   currentBlock: {
     id: string;
     title: string;
@@ -40,23 +44,30 @@ const moveOptions = [
   { label: "Drop it this week", hint: "no explanation needed", target: "drop" as const },
 ];
 
+const firstRunExamples = [
+  { text: "I want to find a new job" },
+  { text: "I want to stop eating out five nights a week" },
+];
+
 // ─── Skeleton helpers ────────────────────────────────────────
 
 const skeletonStyle: React.CSSProperties = {
   animation: "noct-pulse 1.4s ease-in-out infinite",
-  background: "color-mix(in srgb, var(--color-text) 8%, transparent)",
+  background: "var(--app-skeleton)",
   borderRadius: "var(--radius-sm)",
 };
 
 // ─── Component ───────────────────────────────────────────────
 
 export function HomeScreen() {
+  const router = useRouter();
   const [data, setData] = useState<HomeData | null>(null);
   const [state, setState] = useState<LoadState>("loading");
   const [authed, setAuthed] = useState<boolean | null>(null);
   const [moving, setMoving] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const [toastEmail, setToastEmail] = useState<string | null>(null);
+  const [firstRunInput, setFirstRunInput] = useState("");
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const showToast = useCallback((msg: string) => {
@@ -148,6 +159,12 @@ export function HomeScreen() {
     }
   }, [showToast]);
 
+  const startChat = useCallback((text: string) => {
+    const q = text.trim();
+    if (!q) return;
+    router.push(`/new?q=${encodeURIComponent(q)}`);
+  }, [router]);
+
   // ─── Render: Not authenticated ─────────────────────────────
 
   if (authed === false) {
@@ -157,7 +174,7 @@ export function HomeScreen() {
           <StatusBar />
           <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", flex: 1, gap: "var(--space-6)" }}>
             <div style={{ fontFamily: "var(--font-heading)", fontWeight: 500, fontSize: 28, letterSpacing: "-0.02em" }}>lyco</div>
-            <div style={{ fontSize: 14, color: "color-mix(in srgb, var(--color-text) 55%, transparent)", textAlign: "center", maxWidth: 260 }}>
+            <div style={{ fontSize: 14, color: "var(--app-text-muted)", textAlign: "center", maxWidth: 260 }}>
               personal accountability, kept honest by a calendar that knows when you slip.
             </div>
             <form
@@ -182,7 +199,7 @@ export function HomeScreen() {
               </button>
             </form>
             {toastEmail && (
-              <div style={{ fontSize: 13, color: "color-mix(in srgb, var(--color-text) 50%, transparent)" }}>{toastEmail}</div>
+              <div style={{ fontSize: 13, color: "var(--app-text-muted)" }}>{toastEmail}</div>
             )}
           </div>
         </div>
@@ -195,6 +212,10 @@ export function HomeScreen() {
   const isLoading = state === "loading";
   const hasError = state === "error";
   const d = data;
+
+  const sections: SectionVisibility = d
+    ? deriveSections(d)
+    : { firstRun: false, rightNow: false, laterToday: false, spending: false, comingUp: false };
 
   const dots: { color: string }[] = [];
   const kept = d?.kept ?? 0;
@@ -227,72 +248,130 @@ export function HomeScreen() {
             <div style={{ fontSize: 19, fontFamily: "var(--font-heading)", fontWeight: 500, letterSpacing: "-0.015em" }}>
               {isLoading ? <span style={{ ...skeletonStyle, display: "inline-block", width: 120, height: 22 }} /> : d?.greeting}
             </div>
-            <div style={{ fontSize: 12, color: "color-mix(in srgb, var(--color-text) 50%, transparent)", marginTop: 2 }}>
-              {isLoading ? <span style={{ ...skeletonStyle, display: "inline-block", width: 180, height: 14 }} /> : d?.dateLabel}
+            <div style={{ fontSize: "var(--app-size-meta)", color: "var(--app-text-muted)", marginTop: 2 }}>
+              {isLoading ? <span style={{ ...skeletonStyle, display: "inline-block", width: 180, height: 14 }} /> : sections.firstRun ? "nothing set up yet, and that's fine" : d?.dateLabel}
             </div>
           </div>
-          <div style={{ display: "flex", gap: "var(--space-2)" }}>
-            <Link href="/schedule" className="btn btn-ghost" style={{ fontSize: 13, minHeight: 44 }}>
-              schedule
-            </Link>
-            <Link href="/new" className="btn btn-ghost" style={{ fontSize: 13, minHeight: 44 }}>
-              new
-            </Link>
-          </div>
+          {!sections.firstRun && (
+            <div style={{ display: "flex", gap: "var(--space-2)" }}>
+              <Link href="/schedule" className="btn btn-ghost" style={{ fontSize: 13, minHeight: 44 }}>
+                schedule
+              </Link>
+              <Link href="/new" className="btn btn-ghost" style={{ fontSize: 13, minHeight: 44 }}>
+                new
+              </Link>
+            </div>
+          )}
         </header>
 
+        {/* ─── Loading ─────────────────────────────────────────── */}
+        {isLoading && (
+          <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: "var(--space-4)", animation: "noct-breathe 1.7s ease-in-out infinite" }}>
+            <div style={{ height: 22, width: "74%", borderRadius: "var(--radius-sm)", background: "var(--app-skeleton-strong)" }} />
+            <div style={{ height: 12, width: "46%", borderRadius: "var(--radius-sm)", background: "var(--app-skeleton)" }} />
+            <div style={{ height: 3, borderRadius: 2, background: "var(--app-skeleton)" }} />
+          </div>
+        )}
+
+        {/* ─── First run ───────────────────────────────────────── */}
+        {!isLoading && sections.firstRun && (
+          <div style={{ flex: 1, display: "flex", flexDirection: "column", justifyContent: "center", gap: "var(--space-8)", paddingBottom: "8vh", animation: "noct-in 280ms ease both" }}>
+            <div>
+              <div style={{ fontFamily: "var(--font-heading)", fontWeight: 500, fontSize: 29, lineHeight: 1.2, letterSpacing: "-0.02em", textWrap: "pretty" }}>
+                What's the one thing you'd like to get moving?
+              </div>
+              <div style={{ fontSize: "var(--app-size-body)", lineHeight: 1.55, color: "var(--app-text-secondary)", marginTop: "var(--space-4)", textWrap: "pretty" }}>
+                Say it however it sounds in your head. I'll ask a couple of questions, then find the time for it.
+              </div>
+            </div>
+
+            <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-3)" }}>
+              {firstRunExamples.map((ex) => (
+                <button
+                  key={ex.text}
+                  className="btn btn-ghost"
+                  style={{ width: "100%", justifyContent: "flex-start", textAlign: "left", minHeight: "var(--app-tap-min)", padding: "13px var(--space-6)", border: "1px solid var(--app-hairline)", borderRadius: "var(--radius-lg)", fontSize: "var(--app-size-body)", lineHeight: 1.4, color: "var(--app-text-secondary)", fontWeight: 400 }}
+                  onClick={() => startChat(ex.text)}
+                >
+                  {ex.text}
+                </button>
+              ))}
+            </div>
+
+            <form
+              style={{ display: "flex", alignItems: "center", gap: "var(--app-stack-gap)" }}
+              onSubmit={(e) => {
+                e.preventDefault();
+                startChat(firstRunInput);
+              }}
+            >
+              <input
+                className="input"
+                style={{ flex: 1, minHeight: 48, borderRadius: 24, background: "transparent" }}
+                placeholder="type it here"
+                value={firstRunInput}
+                onChange={(e) => setFirstRunInput(e.target.value)}
+              />
+              <button
+                type="submit"
+                className="btn btn-secondary btn-icon"
+                style={{ width: 48, height: 48, borderRadius: "50%", flex: "none" }}
+                aria-label="start"
+                disabled={!firstRunInput.trim()}
+              >
+                <svg width="17" height="17" viewBox="0 0 256 256" fill="currentColor"><path d="M210 128a10 10 0 0 1-5.7 9l-152 72a10 10 0 0 1-13.7-12l22-79-22-79a10 10 0 0 1 13.7-12l152 72a10 10 0 0 1 5.7 9Zm-30 0-131-62 18 62Zm-113 62 131-62H85Z" /></svg>
+              </button>
+            </form>
+          </div>
+        )}
+
         {/* ─── Right now ──────────────────────────────────────── */}
+        {!isLoading && sections.rightNow && (
         <section>
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: "var(--space-3)" }}>
             <span style={{ width: 6, height: 6, borderRadius: "50%", background: "var(--color-accent)" }} />
-            <span style={{ fontSize: 10, letterSpacing: "0.12em", textTransform: "uppercase", color: "var(--color-accent)" }}>
+            <span style={{ fontSize: "var(--app-size-eyebrow)", letterSpacing: "var(--app-eyebrow-track)", textTransform: "uppercase", color: "var(--color-accent)" }}>
               right now
             </span>
           </div>
 
-          {isLoading ? (
-            <div className="card" style={{ gap: "var(--space-4)", padding: "var(--space-6)", borderRadius: "var(--radius-lg)", border: "1px solid color-mix(in srgb, var(--color-accent) 40%, transparent)", background: "var(--color-surface)" }}>
-              <div style={{ ...skeletonStyle, height: 30, width: "80%" }} />
-              <div style={{ ...skeletonStyle, height: 16, width: "60%" }} />
-              <div style={{ ...skeletonStyle, height: 3, width: "100%" }} />
-            </div>
-          ) : d?.currentBlock ? (
+          {d?.currentBlock ? (
             <div
               className="card"
               style={{
                 gap: "var(--space-4)",
                 padding: "var(--space-6)",
                 borderRadius: "var(--radius-lg)",
-                border: "1px solid color-mix(in srgb, var(--color-accent) 40%, transparent)",
+                border: "1px solid var(--app-prominent-border)",
                 background: "var(--color-surface)",
               }}
             >
               <div>
                 <Link href="/block" style={{ textDecoration: "none", color: "inherit" }}>
-                  <div style={{ fontFamily: "var(--font-heading)", fontWeight: 500, fontSize: 26, lineHeight: 1.15, letterSpacing: "-0.02em", textWrap: "pretty" }}>
+                  <div style={{ fontFamily: "var(--font-heading)", fontWeight: 500, fontSize: "var(--app-size-display)", lineHeight: 1.15, letterSpacing: "-0.02em", textWrap: "pretty" }}>
                     {d.currentBlock.title}
                   </div>
                 </Link>
-                <div style={{ fontSize: 13, color: "color-mix(in srgb, var(--color-text) 60%, transparent)", marginTop: 6 }}>
+                <div style={{ fontSize: 13, color: "var(--app-text-muted)", marginTop: 6 }}>
                   {d.currentBlock.meta}
                 </div>
               </div>
 
               <div>
-                <div style={{ height: 3, borderRadius: 2, background: "color-mix(in srgb, var(--color-text) 10%, transparent)", overflow: "hidden" }}>
-                  <div style={{ height: "100%", width: d.currentBlock.progress, background: "var(--color-accent-500)", borderRadius: 2 }} />
+                <div style={{ height: 3, borderRadius: 2, background: "var(--app-track)", overflow: "hidden" }}>
+                  <div style={{ height: "100%", width: d.currentBlock.progress, background: "var(--app-bar-on-pace)", borderRadius: 2 }} />
                 </div>
-                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: "color-mix(in srgb, var(--color-text) 45%, transparent)", marginTop: 6 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: "var(--app-text-quiet)", marginTop: 6 }}>
                   <span>{d.currentBlock.elapsed}</span>
                   <span>{d.currentBlock.left}</span>
                 </div>
               </div>
 
               <div style={{ display: "flex", gap: "var(--space-3)" }}>
-                <button className="btn btn-primary" style={{ flex: 1, minHeight: 46, fontSize: 15 }} onClick={handleDone}>
+                <button className="btn btn-primary" style={{ flex: 1, minHeight: 46, fontSize: "var(--app-size-body)" }} onClick={handleDone}>
                   Done
                 </button>
-                <button className="btn btn-secondary" style={{ flex: 1, minHeight: 46, fontSize: 15 }} onClick={() => setMoving(true)}>
+                <button className="btn btn-secondary" style={{ flex: 1, minHeight: 46, fontSize: "var(--app-size-body)" }} onClick={() => setMoving(true)}>
                   Move it
                 </button>
               </div>
@@ -304,35 +383,28 @@ export function HomeScreen() {
                 gap: "var(--space-4)",
                 padding: "var(--space-6)",
                 borderRadius: "var(--radius-lg)",
-                border: "1px solid var(--color-divider)",
+                border: "1px solid var(--app-hairline)",
                 background: "var(--color-surface)",
               }}
             >
               <div>
-                <div style={{ fontFamily: "var(--font-heading)", fontWeight: 500, fontSize: 26, lineHeight: 1.15, letterSpacing: "-0.02em", textWrap: "pretty" }}>
+                <div style={{ fontFamily: "var(--font-heading)", fontWeight: 500, fontSize: "var(--app-size-display)", lineHeight: 1.15, letterSpacing: "-0.02em", textWrap: "pretty" }}>
                   Nothing scheduled right now
                 </div>
-                <div style={{ fontSize: 13, color: "color-mix(in srgb, var(--color-text) 60%, transparent)", marginTop: 6 }}>
+                <div style={{ fontSize: 13, color: "var(--app-text-muted)", marginTop: 6 }}>
                   the time is yours.
                 </div>
               </div>
             </div>
           )}
         </section>
+        )}
 
         {/* ─── Later today ────────────────────────────────────── */}
+        {!isLoading && sections.laterToday && (
         <section>
           <h6 style={{ margin: "0 0 var(--space-4)", color: "color-mix(in srgb, var(--color-text) 45%, transparent)" }}>Later today</h6>
-          {isLoading ? (
-            <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-2)" }}>
-              {[0, 1, 2].map((i) => (
-                <div key={i} style={{ display: "flex", gap: 14, padding: "10px 0" }}>
-                  <span style={{ ...skeletonStyle, width: 62, height: 16 }} />
-                  <span style={{ ...skeletonStyle, flex: 1, height: 16 }} />
-                </div>
-              ))}
-            </div>
-          ) : d && d.laterToday.length > 0 ? (
+          {d && d.laterToday.length > 0 ? (
             <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-2)" }}>
               {d.laterToday.map((item, i) => (
                 <div
@@ -346,90 +418,70 @@ export function HomeScreen() {
                       "linear-gradient(to right, transparent, color-mix(in srgb, var(--color-text) 8%, transparent) 24px, color-mix(in srgb, var(--color-text) 8%, transparent) calc(100% - 24px), transparent) no-repeat bottom / 100% 1px",
                   }}
                 >
-                  <span style={{ fontSize: 12, fontVariantNumeric: "tabular-nums", color: "color-mix(in srgb, var(--color-text) 45%, transparent)", width: 62, flex: "none" }}>
+                  <span style={{ fontSize: "var(--app-size-meta)", fontVariantNumeric: "tabular-nums", color: "var(--app-text-quiet)", width: 62, flex: "none" }}>
                     {item.time}
                   </span>
-                  <span style={{ fontSize: 15, lineHeight: 1.3, flex: 1, textWrap: "pretty" }}>{item.title}</span>
-                  <span style={{ fontSize: 11, color: "color-mix(in srgb, var(--color-text) 35%, transparent)" }}>{item.len}</span>
+                  <span style={{ fontSize: "var(--app-size-body)", lineHeight: 1.3, flex: 1, textWrap: "pretty" }}>{item.title}</span>
+                  <span style={{ fontSize: "var(--app-size-micro)", color: "var(--app-text-quiet)" }}>{item.len}</span>
                 </div>
               ))}
             </div>
           ) : (
-            <div style={{ fontSize: 13, color: "color-mix(in srgb, var(--color-text) 40%, transparent)", padding: "10px 0" }}>
+            <div style={{ fontSize: "var(--app-size-body)", color: "var(--app-text-secondary)", padding: "10px 0" }}>
               nothing else today.
             </div>
           )}
         </section>
+        )}
 
         {/* ─── Spending ───────────────────────────────────────── */}
+        {!isLoading && sections.spending && (
         <section>
           <h6 style={{ margin: "0 0 var(--space-4)", color: "color-mix(in srgb, var(--color-text) 45%, transparent)" }}>Spending this month</h6>
-          {isLoading ? (
-            <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-6)" }}>
-              {[0, 1].map((i) => (
-                <div key={i}>
-                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 9 }}>
-                    <span style={{ ...skeletonStyle, width: 80, height: 16 }} />
-                    <span style={{ ...skeletonStyle, width: 70, height: 14 }} />
-                  </div>
-                  <div style={{ ...skeletonStyle, height: 8, borderRadius: 4, width: "100%" }} />
-                </div>
-              ))}
-            </div>
-          ) : d && d.spending.length > 0 ? (
+          {d && d.spending.length > 0 && (
             <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-6)" }}>
               {d.spending.map((cat, i) => (
                 <div key={i}>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 10 }}>
-                    <span style={{ fontSize: 15 }}>{cat.label}</span>
-                    <span style={{ fontSize: 13, fontVariantNumeric: "tabular-nums", color: "color-mix(in srgb, var(--color-text) 60%, transparent)" }}>
+                    <span style={{ fontSize: "var(--app-size-body)" }}>{cat.label}</span>
+                    <span style={{ fontSize: 13, fontVariantNumeric: "tabular-nums", color: "var(--app-text-secondary)" }}>
                       {cat.figure}
                     </span>
                   </div>
-                  <div style={{ position: "relative", height: 8, borderRadius: 4, background: "color-mix(in srgb, var(--color-text) 9%, transparent)", marginTop: 9, overflow: "hidden" }}>
+                  <div style={{ position: "relative", height: "var(--app-bar-height)", borderRadius: 4, background: "var(--app-track)", marginTop: 9, overflow: "hidden" }}>
                     <div style={{ height: "100%", width: cat.barWidth, borderRadius: 4, background: cat.barColor }} />
                     {cat.markerLeft && (
                       <div style={{ position: "absolute", top: -2, bottom: -2, left: cat.markerLeft, width: 1, background: "color-mix(in srgb, var(--color-text) 40%, transparent)" }} />
                     )}
                   </div>
-                  <div style={{ fontSize: 11.5, color: "color-mix(in srgb, var(--color-text) 45%, transparent)", marginTop: 7 }}>{cat.note}</div>
+                  <div style={{ fontSize: "var(--app-size-micro)", color: "var(--app-text-quiet)", marginTop: 7 }}>{cat.note}</div>
                 </div>
               ))}
             </div>
-          ) : (
-            <div style={{ fontSize: 13, color: "color-mix(in srgb, var(--color-text) 40%, transparent)", padding: "10px 0" }}>
-              no spending goals yet.
-            </div>
           )}
         </section>
+        )}
 
         {/* ─── Coming up ──────────────────────────────────────── */}
+        {!isLoading && sections.comingUp && (
         <section>
           <h6 style={{ margin: "0 0 var(--space-4)", color: "color-mix(in srgb, var(--color-text) 45%, transparent)" }}>Coming up</h6>
-          {isLoading ? (
-            <div className="card" style={{ flexDirection: "row", alignItems: "center", gap: "var(--space-6)", padding: "var(--space-4) var(--space-6)", background: "transparent", border: "1px solid var(--color-divider)" }}>
-              <div style={{ ...skeletonStyle, width: 40, height: 40 }} />
-              <div style={{ flex: 1 }}>
-                <div style={{ ...skeletonStyle, height: 16, width: "60%", marginBottom: 6 }} />
-                <div style={{ ...skeletonStyle, height: 12, width: "80%" }} />
-              </div>
-            </div>
-          ) : d && d.upcoming.length > 0 ? (
+          {d && d.upcoming.length > 0 && (
             <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-3)" }}>
               {d.upcoming.map((occ) => (
                 <div
                   key={occ.id}
                   className="card"
-                  style={{ flexDirection: "row", alignItems: "center", gap: "var(--space-6)", padding: "var(--space-4) var(--space-6)", background: "transparent", border: "1px solid var(--color-divider)" }}
+                  style={{ flexDirection: "row", alignItems: "center", gap: "var(--space-6)", padding: "var(--space-4) var(--space-6)", background: "transparent", border: "1px solid var(--app-hairline)" }}
                 >
                   <div style={{ textAlign: "center", flex: "none" }}>
-                    <div style={{ fontFamily: "var(--font-heading)", fontWeight: 500, fontSize: 30, lineHeight: 1, color: "var(--color-accent-300)", fontVariantNumeric: "tabular-nums" }}>{occ.daysAway}</div>
-                    <div style={{ fontSize: 10, letterSpacing: "0.1em", textTransform: "uppercase", color: "color-mix(in srgb, var(--color-text) 40%, transparent)", marginTop: 4 }}>days</div>
+                    <div style={{ fontFamily: "var(--font-heading)", fontWeight: 500, fontSize: 30, lineHeight: 1, color: "var(--app-text-accent)", fontVariantNumeric: "tabular-nums" }}>{occ.daysAway}</div>
+                    <div style={{ fontSize: "var(--app-size-eyebrow)", letterSpacing: "0.1em", textTransform: "uppercase", color: "var(--app-text-quiet)", marginTop: 4 }}>days</div>
                   </div>
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: 15, lineHeight: 1.25 }}>{occ.title}</div>
+                    <div style={{ fontSize: "var(--app-size-body)", lineHeight: 1.25 }}>{occ.title}</div>
                     {occ.note && (
-                      <div style={{ fontSize: 12, color: "color-mix(in srgb, var(--color-text) 50%, transparent)", marginTop: 3, textWrap: "pretty" }}>
+                      <div style={{ fontSize: "var(--app-size-meta)", color: "var(--app-text-muted)", marginTop: 3, textWrap: "pretty" }}>
                         {occ.note}
                       </div>
                     )}
@@ -437,57 +489,38 @@ export function HomeScreen() {
                 </div>
               ))}
             </div>
-          ) : (
-            <div style={{ fontSize: 13, color: "color-mix(in srgb, var(--color-text) 40%, transparent)", padding: "10px 0" }}>
-              nothing coming up.
-            </div>
           )}
         </section>
+        )}
 
         {/* ─── Footer ─────────────────────────────────────────── */}
-        {isLoading ? (
+        {!isLoading && !sections.firstRun && (
           <footer
             style={{
               marginTop: "auto",
               paddingTop: "var(--space-6)",
               background:
-                "linear-gradient(to right, transparent, var(--color-divider) 24px, var(--color-divider) calc(100% - 24px), transparent) no-repeat top / 100% 1px",
+                "linear-gradient(to right, transparent, var(--app-hairline) 24px, var(--app-hairline) calc(100% - 24px), transparent) no-repeat top / 100% 1px",
             }}
           >
-            <div style={{ ...skeletonStyle, height: 12, width: 200 }} />
+            {d && d.total > 0 ? (
+              <>
+                <div style={{ display: "flex", alignItems: "center", gap: 5, marginBottom: 9, flexWrap: "wrap" }}>
+                  {dots.map((dot, i) => (
+                    <span key={i} style={{ width: 5, height: 5, borderRadius: "50%", background: dot.color }} />
+                  ))}
+                </div>
+                <div style={{ fontSize: "var(--app-size-meta)", color: "var(--app-text-muted)", textWrap: "pretty" }}>
+                  you kept {d.kept} of {d.total} blocks this month.
+                </div>
+              </>
+            ) : (
+              <div style={{ fontSize: "var(--app-size-meta)", color: "var(--app-text-muted)", textWrap: "pretty" }}>
+                no blocks this month yet.
+              </div>
+            )}
           </footer>
-        ) : d && d.total > 0 ? (
-          <footer
-            style={{
-              marginTop: "auto",
-              paddingTop: "var(--space-6)",
-              background:
-                "linear-gradient(to right, transparent, var(--color-divider) 24px, var(--color-divider) calc(100% - 24px), transparent) no-repeat top / 100% 1px",
-            }}
-          >
-            <div style={{ display: "flex", alignItems: "center", gap: 5, marginBottom: 9, flexWrap: "wrap" }}>
-              {dots.map((dot, i) => (
-                <span key={i} style={{ width: 5, height: 5, borderRadius: "50%", background: dot.color }} />
-              ))}
-            </div>
-            <div style={{ fontSize: 12, color: "color-mix(in srgb, var(--color-text) 50%, transparent)", textWrap: "pretty" }}>
-              you kept {d.kept} of {d.total} blocks this month.
-            </div>
-          </footer>
-        ) : d ? (
-          <footer
-            style={{
-              marginTop: "auto",
-              paddingTop: "var(--space-6)",
-              background:
-                "linear-gradient(to right, transparent, var(--color-divider) 24px, var(--color-divider) calc(100% - 24px), transparent) no-repeat top / 100% 1px",
-            }}
-          >
-            <div style={{ fontSize: 12, color: "color-mix(in srgb, var(--color-text) 40%, transparent)", textWrap: "pretty" }}>
-              no blocks this month yet.
-            </div>
-          </footer>
-        ) : null}
+        )}
 
         {hasError && (
           <div style={{ fontSize: 13, color: "var(--color-neutral-400)", textAlign: "center", padding: "var(--space-4) 0" }}>
@@ -513,7 +546,7 @@ export function HomeScreen() {
           >
             <div style={{ width: 34, height: 4, borderRadius: 2, background: "color-mix(in srgb, var(--color-text) 18%, transparent)", margin: "0 auto var(--space-6)" }} />
             <div style={{ fontFamily: "var(--font-heading)", fontWeight: 500, fontSize: 18, marginBottom: "var(--space-2)" }}>Move it where?</div>
-            <div style={{ fontSize: 13, color: "color-mix(in srgb, var(--color-text) 50%, transparent)", marginBottom: "var(--space-6)" }}>
+            <div style={{ fontSize: 13, color: "var(--app-text-muted)", marginBottom: "var(--space-6)" }}>
               the block stays the same size. your calendar updates too.
             </div>
             <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-3)" }}>
@@ -521,11 +554,11 @@ export function HomeScreen() {
                 <button
                   key={opt.target}
                   className="btn btn-secondary"
-                  style={{ justifyContent: "space-between", minHeight: 48, fontSize: 15, width: "100%" }}
+                  style={{ justifyContent: "space-between", minHeight: 48, fontSize: "var(--app-size-body)", width: "100%" }}
                   onClick={() => handleMove(opt.target)}
                 >
                   <span>{opt.label}</span>
-                  <span style={{ fontSize: 12, color: "color-mix(in srgb, var(--color-text) 45%, transparent)", fontWeight: 400 }}>{opt.hint}</span>
+                  <span style={{ fontSize: 12, color: "var(--app-text-quiet)", fontWeight: 400 }}>{opt.hint}</span>
                 </button>
               ))}
             </div>
@@ -546,7 +579,7 @@ export function HomeScreen() {
             borderRadius: "var(--radius-md)",
             padding: "12px 14px",
             fontSize: 13,
-            border: "1px solid var(--color-divider)",
+            border: "1px solid var(--app-hairline)",
             animation: "noct-fade 240ms ease both",
           }}
         >
