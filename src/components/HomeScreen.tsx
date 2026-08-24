@@ -150,6 +150,10 @@ export function HomeScreen() {
         body: JSON.stringify({ email }),
       });
       const json = await res.json();
+      if (!res.ok) {
+        setToastEmail(json.error ?? "something went wrong. try again.");
+        return;
+      }
       if (json.link) {
         window.location.href = json.link;
       } else {

@@ -2,6 +2,12 @@ import crypto from "crypto";
 import { pool, query } from "./db";
 
 const AUTH_SECRET = process.env.AUTH_SECRET ?? "dev-secret";
+if (!process.env.AUTH_SECRET && process.env.NODE_ENV === "production") {
+  console.warn("[auth] AUTH_SECRET is not set — using insecure default. Set it in your environment.");
+}
+if (!process.env.NEXT_PUBLIC_APP_URL && process.env.NODE_ENV === "production") {
+  console.warn("[auth] NEXT_PUBLIC_APP_URL is not set — magic links will point to localhost:3001.");
+}
 const SESSION_COOKIE = "lyco_session";
 const SESSION_TTL_DAYS = 30;
 const MAGIC_LINK_TTL_MINUTES = 15;
