@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="_ds/nocturne-f7d4f4b9-5efb-4327-8360-eae7fa398138/styles.css">
+<link rel="stylesheet" href="app-tokens.css">
+<script src="_ds/nocturne-f7d4f4b9-5efb-4327-8360-eae7fa398138/_ds_bundle.js"></script>
+<style>@keyframes noct-in{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}</style>
+</helmet>
+<div style="min-height:100dvh;width:100%;max-width:440px;margin:0 auto;background:var(--color-bg);color:var(--app-text);font-family:var(--font-body);padding:var(--app-screen-pad-top) var(--app-screen-pad-x) var(--app-screen-pad-bottom);display:flex;flex-direction:column;gap:var(--app-section-gap)">
+
+<header>
+<div style="font-size:19px;font-family:var(--font-heading);font-weight:500;letter-spacing:-0.015em">{{ greeting }}</div>
+<div style="font-size:var(--app-size-meta);color:var(--app-text-muted);margin-top:2px">{{ dateLine }}</div>
+</header>
+
+<sc-if value="{{ isFirst }}" hint-placeholder-val="{{ true }}">
+<div style="flex:1;display:flex;flex-direction:column;justify-content:center;gap:var(--space-8);padding-bottom:8vh">
+<div>
+<div style="font-family:var(--font-heading);font-weight:500;font-size:29px;line-height:1.2;letter-spacing:-0.02em;text-wrap:pretty">What's the one thing you'd like to get moving?</div>
+<div style="font-size:var(--app-size-body);line-height:1.55;color:var(--app-text-secondary);margin-top:var(--space-4);text-wrap:pretty">Say it however it sounds in your head. I'll ask a couple of questions, then find the time for it.</div>
+</div>
+
+<div style="display:flex;flex-direction:column;gap:var(--space-3)">
+<sc-for list="{{ examples }}" as="ex" hint-placeholder-count="2">
+<button class="btn btn-ghost" style="width:100%;justify-content:flex-start;text-align:left;min-height:var(--app-tap-min);padding:13px var(--space-6);border:1px solid var(--app-hairline);border-radius:var(--radius-lg);font-size:var(--app-size-body);line-height:1.4;color:var(--app-text-secondary);font-weight:400">{{ ex.text }}</button>
+</sc-for>
+</div>
+
+<div style="display:flex;align-items:center;gap:var(--app-stack-gap)">
+<input class="input" style="flex:1;min-height:48px;border-radius:24px;background:transparent" placeholder="type it here">
+<button class="btn btn-secondary btn-icon" style="width:48px;height:48px;border-radius:50%;flex:none" aria-label="start">
+<svg width="17" height="17" viewBox="0 0 256 256" fill="currentColor"><path d="M210 128a10 10 0 0 1-5.7 9l-152 72a10 10 0 0 1-13.7-12l22-79-22-79a10 10 0 0 1 13.7-12l152 72a10 10 0 0 1 5.7 9Zm-30 0-131-62 18 62Zm-113 62 131-62H85Z"/></svg>
+</button>
+</div>
+</div>
+</sc-if>
+
+<sc-if value="{{ isOneGoal }}" hint-placeholder-val="{{ false }}">
+<div style="display:flex;flex-direction:column;gap:var(--app-section-gap);animation:noct-in 280ms ease both">
+
+<section>
+<div style="display:flex;align-items:center;gap:8px;margin-bottom:var(--space-3)">
+<span style="width:6px;height:6px;border-radius:50%;background:var(--color-accent)"></span>
+<span style="font-size:var(--app-size-eyebrow);letter-spacing:var(--app-eyebrow-track);text-transform:uppercase;color:var(--color-accent)">your first block</span>
+</div>
+<div style="border:1px solid var(--app-prominent-border);border-radius:var(--radius-lg);padding:var(--space-6);display:flex;flex-direction:column;gap:var(--space-4)">
+<div>
+<div style="font-family:var(--font-heading);font-weight:500;font-size:var(--app-size-display);line-height:1.15;letter-spacing:-0.02em;text-wrap:pretty">Tuesday, 7:00 pm</div>
+<div style="font-size:13px;color:var(--app-text-muted);margin-top:6px;text-wrap:pretty">rewrite the résumé summary · the time you agreed to</div>
+</div>
+<button class="btn btn-secondary" style="min-height:46px;font-size:var(--app-size-body);width:100%">Put it on my calendar</button>
+<div style="font-size:var(--app-size-micro);color:var(--app-text-quiet);text-wrap:pretty">connecting your calendar lets me see what's already there before proposing times.</div>
+</div>
+</section>
+
+<section>
+<h6 style="margin:0 0 var(--space-4);color:color-mix(in srgb, var(--color-text) 45%, transparent)">New job — 5 first rounds</h6>
+<div style="display:flex;align-items:baseline;gap:14px;padding:10px 0;background:linear-gradient(to right, transparent, var(--app-hairline) 24px, var(--app-hairline) calc(100% - 24px), transparent) no-repeat bottom / 100% 1px">
+<span style="font-size:var(--app-size-meta);color:var(--app-text-quiet);width:62px;flex:none">by 31 oct</span>
+<span style="font-size:var(--app-size-body);line-height:1.3;flex:1">twice a week · 18 sessions</span>
+</div>
+<div style="font-size:var(--app-size-meta);color:var(--app-text-muted);margin-top:var(--space-4);text-wrap:pretty">this is the only thing running. add another when this one has a rhythm.</div>
+</section>
+
+<footer style="margin-top:var(--space-4);padding-top:var(--space-6);background:linear-gradient(to right, transparent, var(--app-hairline) 24px, var(--app-hairline) calc(100% - 24px), transparent) no-repeat top / 100% 1px;display:flex;flex-direction:column;gap:var(--space-4)">
+<div style="font-size:var(--app-size-meta);line-height:1.5;color:var(--app-text-muted);text-wrap:pretty">spending goals and upcoming occasions will appear here when you want them. no hurry.</div>
+<div style="display:flex;flex-wrap:wrap;gap:var(--app-stack-gap)">
+<button class="btn btn-ghost" style="min-height:var(--app-tap-min);font-size:14px;border-radius:22px">Watch a spending category</button>
+<button class="btn btn-ghost" style="min-height:var(--app-tap-min);font-size:14px;border-radius:22px">Add an occasion</button>
+</div>
+</footer>
+
+</div>
+</sc-if>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:&quot;420&quot;,&quot;height&quot;:&quot;900&quot;},&quot;mode&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;first&quot;,&quot;one-goal&quot;],&quot;default&quot;:&quot;first&quot;,&quot;tsType&quot;:&quot;string&quot;}}">
+class Component extends DCLogic {
+  renderVals() {
+    const mode = this.props.mode ?? "first";
+    return {
+      isFirst: mode === "first",
+      isOneGoal: mode === "one-goal",
+      greeting: mode === "first" ? "Hello, Sam" : "Morning, Sam",
+      dateLine: mode === "first" ? "nothing set up yet, and that's fine" : "sunday 23 august · 9:04 am",
+      examples: [
+        { text: "\u201cI want to find a new job\u201d" },
+        { text: "\u201cI want to stop eating out five nights a week\u201d" }
+      ]
+    };
+  }
+}
+</script>
+</body>
+</html>

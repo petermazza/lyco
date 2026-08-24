@@ -12,11 +12,10 @@
 <script src="_ds/nocturne-f7d4f4b9-5efb-4327-8360-eae7fa398138/_ds_bundle.js"></script>
 <style>body{margin:0;background:#0f111c}@keyframes noct-fade{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}@keyframes noct-sheet{from{transform:translateY(100%)}to{transform:none}}</style>
 </helmet>
-<div style="min-height:100vh;display:flex;align-items:center;justify-content:center;padding:32px 16px;background:#0f111c">
-<x-import component-from-global-scope="IOSDevice" from="./ios-frame.jsx" dark="{{ true }}" hint-size="390px,844px">
-<div style="position:relative;height:100%;overflow:hidden;background:var(--color-bg);color:var(--color-text);font-family:var(--font-body)">
+<div style="min-height:100dvh;background:var(--color-bg)">
+<div style="position:relative;min-height:100dvh;display:flex;flex-direction:column;width:100%;max-width:440px;margin:0 auto;background:var(--color-bg);color:var(--color-text);font-family:var(--font-body)">
 
-<div style="height:100%;overflow-y:auto;padding:70px 18px 44px;display:flex;flex-direction:column;gap:var(--space-8)">
+<div style="flex:1;padding:var(--space-8) var(--space-6);display:flex;flex-direction:column;gap:var(--space-8)">
 
 <header style="display:flex;align-items:baseline;justify-content:space-between;gap:12px;padding-top:4px">
 <div>
@@ -123,8 +122,8 @@
 </div>
 
 <sc-if value="{{ moving }}" hint-placeholder-val="{{ false }}">
-<div style="position:absolute;inset:0;background:color-mix(in srgb, #0b0d16 62%, transparent);display:flex;flex-direction:column;justify-content:flex-end" onClick="{{ onCancelMove }}">
-<div style="background:var(--color-surface);border-radius:var(--radius-lg) var(--radius-lg) 0 0;padding:var(--space-6) var(--space-6) var(--space-8);animation:noct-sheet 220ms cubic-bezier(.2,.8,.3,1)" onClick="{{ stop }}">
+<div style="position:fixed;inset:0;background:color-mix(in srgb, #0b0d16 62%, transparent);display:flex;flex-direction:column;justify-content:flex-end;z-index:2" onClick="{{ onCancelMove }}">
+<div style="width:100%;max-width:440px;margin:0 auto;background:var(--color-surface);border-radius:var(--radius-lg) var(--radius-lg) 0 0;padding:var(--space-6) var(--space-6) var(--space-8);animation:noct-sheet 220ms cubic-bezier(.2,.8,.3,1)" onClick="{{ stop }}">
 <div style="width:34px;height:4px;border-radius:2px;background:color-mix(in srgb, var(--color-text) 18%, transparent);margin:0 auto var(--space-6)"></div>
 <div style="font-family:var(--font-heading);font-weight:500;font-size:18px;margin-bottom:var(--space-2)">Move it where?</div>
 <div style="font-size:13px;color:color-mix(in srgb, var(--color-text) 50%, transparent);margin-bottom:var(--space-6)">the block stays the same size. your calendar updates too.</div>
@@ -138,11 +137,10 @@
 </sc-if>
 
 <sc-if value="{{ toast }}" hint-placeholder-val="{{ false }}">
-<div style="position:absolute;left:18px;right:18px;bottom:44px;background:var(--color-surface);border-radius:var(--radius-md);padding:12px 14px;font-size:13px;border:1px solid var(--color-divider);animation:noct-fade 240ms ease both">{{ toast }}</div>
+<div style="position:fixed;left:var(--space-6);right:var(--space-6);bottom:var(--space-6);max-width:392px;margin:0 auto;background:var(--color-surface);border-radius:var(--radius-md);padding:12px 14px;font-size:13px;border:1px solid var(--color-divider);animation:noct-fade 240ms ease both">{{ toast }}</div>
 </sc-if>
 
 </div>
-</x-import>
 </div>
 </x-dc>
 <script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:&quot;460&quot;,&quot;height&quot;:&quot;920&quot;},&quot;greeting&quot;:{&quot;editor&quot;:&quot;text&quot;,&quot;default&quot;:&quot;Afternoon, Sam&quot;,&quot;tsType&quot;:&quot;string&quot;},&quot;spendingMode&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;spent&quot;,&quot;left&quot;],&quot;default&quot;:&quot;spent&quot;,&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;Content&quot;},&quot;ratioStyle&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;sentence&quot;,&quot;fraction&quot;],&quot;default&quot;:&quot;sentence&quot;,&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;Content&quot;}}">

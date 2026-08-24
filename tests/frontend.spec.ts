@@ -406,6 +406,50 @@ test.describe.serial("Schedule proposal screen", () => {
   });
 });
 
+// ─── Login screen ─────────────────────────────────────────────
+
+test.describe.serial("Login screen", () => {
+  test("shows login form when unauthenticated", async ({ page }) => {
+    await page.route("**/api/home", (route) =>
+      route.fulfill({ status: 401, json: { error: "Unauthorized" } })
+    );
+    await page.goto("/");
+    await page.waitForLoadState("networkidle");
+    await expect(page.getByText("lyco")).toBeVisible();
+    await expect(page.getByText(/personal accountability/i)).toBeVisible();
+    await expect(page.getByRole("button", { name: "Sign in" })).toBeVisible();
+    await expect(page.locator("input[name='email']")).toBeVisible();
+  });
+
+  test("entering email shows check your email message", async ({ page }) => {
+    await page.route("**/api/home", (route) =>
+      route.fulfill({ status: 401, json: { error: "Unauthorized" } })
+    );
+    await page.route("**/api/auth/request-link", (route) =>
+      route.fulfill({ status: 200, json: { ok: true } })
+    );
+    await page.goto("/");
+    await page.waitForLoadState("networkidle");
+    await page.locator("input[name='email']").fill("test@lyco.test");
+    await page.getByRole("button", { name: "Sign in" }).click();
+    await expect(page.getByText(/check your email/i)).toBeVisible();
+  });
+
+  test("shows error message when email sending fails", async ({ page }) => {
+    await page.route("**/api/home", (route) =>
+      route.fulfill({ status: 401, json: { error: "Unauthorized" } })
+    );
+    await page.route("**/api/auth/request-link", (route) =>
+      route.fulfill({ status: 502, json: { error: "Could not send sign-in email. Please try again." } })
+    );
+    await page.goto("/");
+    await page.waitForLoadState("networkidle");
+    await page.locator("input[name='email']").fill("test@lyco.test");
+    await page.getByRole("button", { name: "Sign in" }).click();
+    await expect(page.getByText(/could not send sign-in email/i)).toBeVisible();
+  });
+});
+
 // ─── Sentence casing check ───────────────────────────────────
 
 const PROPER_NOUNS = [

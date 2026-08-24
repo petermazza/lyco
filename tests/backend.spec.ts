@@ -54,6 +54,36 @@ test.describe("POST /api/auth/request-link", () => {
   });
 });
 
+// ─── Auth API: email integration ─────────────────────────────
+
+test.describe("Email integration", () => {
+  test("request-link succeeds in dev mode (RESEND_API_KEY unset, link logged to console)", async () => {
+    const ctx = await apiRequest.newContext();
+    const res = await ctx.post(`${BASE}/api/auth/request-link`, {
+      data: { email: "email-dev@lyco.test" },
+    });
+    expect(res.status()).toBe(200);
+    const body = await res.json();
+    expect(body.ok).toBe(true);
+    expect(body.link).toContain("/api/auth/verify?token=");
+    await ctx.dispose();
+  });
+
+  test("request-link with RESEND_API_KEY unset still creates a valid session", async () => {
+    const ctx = await apiRequest.newContext();
+    const res = await ctx.post(`${BASE}/api/auth/request-link`, {
+      data: { email: "email-session@lyco.test" },
+    });
+    const body = await res.json();
+    const verifyRes = await ctx.get(body.link, { maxRedirects: 0 });
+    expect([200, 307]).toContain(verifyRes.status());
+    const cookieList = await ctx.storageState().then((s) => s.cookies);
+    const sessionCookie = cookieList.find((c) => c.name === "lyco_session");
+    expect(sessionCookie).toBeTruthy();
+    await ctx.dispose();
+  });
+});
+
 // ─── Auth API: verify ────────────────────────────────────────
 
 test.describe("GET /api/auth/verify", () => {

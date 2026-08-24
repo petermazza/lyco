@@ -24,8 +24,8 @@
 
   /* screen rhythm */
   --app-screen-pad-x: var(--space-6);
-  --app-screen-pad-top: 66px;
-  --app-screen-pad-bottom: 34px;
+  --app-screen-pad-top: var(--space-8);
+  --app-screen-pad-bottom: var(--space-8);
   --app-section-gap: var(--space-8);
   --app-stack-gap: var(--space-3);
   --app-tap-min: 44px;

@@ -12,11 +12,9 @@
 <script src="_ds/nocturne-f7d4f4b9-5efb-4327-8360-eae7fa398138/_ds_bundle.js"></script>
 <style>body{margin:0;background:#0f111c}@keyframes noct-in{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}</style>
 </helmet>
-<div style="min-height:100vh;display:flex;align-items:center;justify-content:center;padding:32px 16px;background:#0f111c">
-<x-import component-from-global-scope="IOSDevice" from="./ios-frame.jsx" dark="{{ true }}" hint-size="390px,844px">
-<div style="position:relative;height:100%;display:flex;flex-direction:column;background:var(--color-bg);color:var(--color-text);font-family:var(--font-body);overflow:hidden">
+<div style="position:relative;height:100dvh;display:flex;flex-direction:column;width:100%;max-width:440px;margin:0 auto;background:var(--color-bg);color:var(--color-text);font-family:var(--font-body)">
 
-<header style="flex:none;padding:66px 20px 14px;display:flex;align-items:center;gap:14px">
+<header style="flex:none;padding:var(--space-8) var(--space-6) 14px;display:flex;align-items:center;gap:14px">
 <button class="btn btn-ghost" style="font-size:13px;min-height:44px;padding-inline:0">Close</button>
 <div style="flex:1;min-width:0;text-align:right">
 <div style="font-size:10px;letter-spacing:0.12em;text-transform:uppercase;color:color-mix(in srgb, var(--color-text) 35%, transparent)">New project</div>
@@ -24,7 +22,7 @@
 </div>
 </header>
 
-<div ref="{{ scrollRef }}" style="flex:1;overflow-y:auto;padding:8px 20px 20px;display:flex;flex-direction:column;gap:var(--space-8)">
+<div ref="{{ scrollRef }}" style="flex:1;overflow-y:auto;padding:8px var(--space-6) 20px;display:flex;flex-direction:column;gap:var(--space-8)">
 <sc-for list="{{ messages }}" as="m" hint-placeholder-count="4">
 <div>
 <sc-if value="{{ m.isUser }}" hint-placeholder-val="{{ false }}">
@@ -48,7 +46,7 @@
 </div>
 </div>
 
-<div style="flex:none;padding:0 20px 34px">
+<div style="flex:none;padding:0 var(--space-6) var(--space-6)">
 <div style="display:flex;gap:var(--space-6);padding:12px 0;background:linear-gradient(to right, transparent, var(--color-divider) 24px, var(--color-divider) calc(100% - 24px), transparent) no-repeat top / 100% 1px">
 <div style="flex:1;min-width:0">
 <div style="font-size:9.5px;letter-spacing:0.1em;text-transform:uppercase;color:color-mix(in srgb, var(--color-text) 32%, transparent)">Title</div>
@@ -72,8 +70,6 @@
 </div>
 </div>
 
-</div>
-</x-import>
 </div>
 </x-dc>
 <script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:&quot;460&quot;,&quot;height&quot;:&quot;920&quot;}}">

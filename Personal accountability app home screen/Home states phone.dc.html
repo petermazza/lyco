@@ -13,8 +13,7 @@
 <script src="_ds/nocturne-f7d4f4b9-5efb-4327-8360-eae7fa398138/_ds_bundle.js"></script>
 <style>@keyframes noct-breathe{0%,100%{opacity:.5}50%{opacity:1}}@keyframes noct-in{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}</style>
 </helmet>
-<x-import component-from-global-scope="IOSDevice" from="./ios-frame.jsx" dark="{{ true }}" hint-size="390px,844px">
-<div style="height:100%;overflow-y:auto;background:var(--color-bg);color:var(--app-text);font-family:var(--font-body);padding:var(--app-screen-pad-top) var(--app-screen-pad-x) var(--app-screen-pad-bottom);display:flex;flex-direction:column;gap:var(--app-section-gap)">
+<div style="min-height:100dvh;width:100%;max-width:440px;margin:0 auto;background:var(--color-bg);color:var(--app-text);font-family:var(--font-body);padding:var(--app-screen-pad-top) var(--app-screen-pad-x) var(--app-screen-pad-bottom);display:flex;flex-direction:column;gap:var(--app-section-gap)">
 
 <header style="display:flex;align-items:baseline;justify-content:space-between;gap:12px">
 <div>
@@ -197,7 +196,6 @@
 </footer>
 
 </div>
-</x-import>
 </x-dc>
 <script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:&quot;420&quot;,&quot;height&quot;:&quot;900&quot;},&quot;mode&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;loading&quot;,&quot;empty&quot;,&quot;partial&quot;],&quot;default&quot;:&quot;empty&quot;,&quot;tsType&quot;:&quot;string&quot;}}">
 class Component extends DCLogic {
