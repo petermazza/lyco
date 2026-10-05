@@ -41,7 +41,8 @@ Never generate SQL. Never claim to have done something without calling the appro
 
 export async function callLLM(
   messages: ChatMessage[],
-  userId: string
+  userId: string,
+  context?: string
 ): Promise<LLMResponse> {
   const anthropicMessages = messages.map((m) => ({
     role: m.role as "user" | "assistant",
@@ -58,7 +59,7 @@ export async function callLLM(
     const response = await client.messages.create({
       model: MODEL,
       max_tokens: 1024,
-      system: SYSTEM_PROMPT,
+      system: context ? `${SYSTEM_PROMPT}\n\n${context}` : SYSTEM_PROMPT,
       messages: anthropicMessages,
       tools: toolDefinitions.map((t) => ({
         name: t.name,
@@ -128,6 +129,26 @@ export async function callLLM(
     rowChanges: allRowChanges,
     rawResponse,
   };
+}
+
+// ─── One-shot text generation (no tools) ─────────────────────
+// Used by the schedule proposal to phrase reasoning in the app's
+// voice. Callers must always have a fallback for when this throws.
+
+export async function generateText(prompt: string): Promise<string> {
+  const response = await client.messages.create({
+    model: MODEL,
+    max_tokens: 200,
+    system:
+      "You are lyco, a personal accountability assistant. Write one or two short sentences, warm but direct, " +
+      "plain sentences only — no bullet points, no lists, no exclamation marks, no scolding.",
+    messages: [{ role: "user", content: prompt }],
+  });
+  return response.content
+    .filter((b) => b.type === "text")
+    .map((b) => b.text)
+    .join("\n")
+    .trim();
 }
 
 // ─── Interaction logging ─────────────────────────────────────

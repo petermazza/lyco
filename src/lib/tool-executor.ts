@@ -75,6 +75,8 @@ async function executeOne(call: ToolCall, userId: string): Promise<ToolResult> {
       return completeBlock(call.arguments, userId);
     case "move_block":
       return moveBlock(call.arguments, userId);
+    case "update_block":
+      return updateBlock(call.arguments, userId);
     default:
       return {
         tool: call.name,
@@ -317,6 +319,33 @@ async function moveBlock(
   }
 
   const now = new Date();
+
+  if (target === "add_15") {
+    // Extend the block so it ends 15 minutes later, rather than
+    // pushing the start into the future.
+    const newDuration = blocks[0].duration_minutes + 15;
+    await query(
+      `UPDATE blocks SET duration_minutes = $1
+       WHERE id = $2 AND user_id = $3`,
+      [newDuration, blockId, userId]
+    );
+
+    return {
+      tool: "move_block",
+      success: true,
+      message: `Block extended to ${newDuration} minutes.`,
+      data: {
+        block_id: blockId,
+        rowChange: {
+          table: "blocks",
+          operation: "update" as const,
+          row_id: blockId,
+          changes: { duration_minutes: newDuration },
+        },
+      },
+    };
+  }
+
   let newStart: Date;
 
   if (target === "later_today") {
@@ -326,8 +355,6 @@ async function moveBlock(
     }
   } else if (target === "tomorrow_morning") {
     newStart = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, 9, 0, 0);
-  } else if (target === "add_15") {
-    newStart = new Date(new Date(blocks[0].scheduled_at).getTime() + 15 * 60000);
   } else {
     return {
       tool: "move_block",
@@ -353,6 +380,47 @@ async function moveBlock(
         operation: "update" as const,
         row_id: blockId,
         changes: { scheduled_at: newStart.toISOString() },
+      },
+    },
+  };
+}
+
+// ─── update_block ────────────────────────────────────────────
+
+async function updateBlock(
+  args: Record<string, unknown>,
+  userId: string
+): Promise<ToolResult> {
+  const blockId = args.block_id as string;
+  const title = (args.title as string).trim();
+
+  const rows = await query<{ id: string }>(
+    `UPDATE blocks SET title = $1
+     WHERE id = $2 AND user_id = $3 AND status IN ('scheduled', 'running')
+     RETURNING id`,
+    [title, blockId, userId]
+  );
+
+  if (!rows[0]) {
+    return {
+      tool: "update_block",
+      success: false,
+      message: "Block not found or already completed.",
+    };
+  }
+
+  return {
+    tool: "update_block",
+    success: true,
+    message: `Block renamed to "${title}".`,
+    data: {
+      block_id: blockId,
+      title,
+      rowChange: {
+        table: "blocks",
+        operation: "update" as const,
+        row_id: blockId,
+        changes: { title },
       },
     },
   };

@@ -33,7 +33,7 @@ export async function seed() {
   const goals = await query<{ id: string; title: string }>(
     `INSERT INTO goals (user_id, title, deadline, cadence)
      VALUES
-       ($1, 'New job — 5 first rounds', '2025-10-31', '2x a week'),
+       ($1, 'New job — 5 first rounds', CURRENT_DATE + 63, '2x a week'),
        ($1, 'Write the weekly digest prompt', NULL, 'weekly')
      RETURNING id, title`,
     [userId]
@@ -58,12 +58,13 @@ export async function seed() {
   const rideshareId = spendingGoals.find((s) => s.label === "Rideshare")?.id;
 
   if (eatingOutId) {
-    // $186 total across several entries
+    // $186 total across several entries — clamped to this calendar
+    // month so totals don't shrink when the seed runs early in a month
     const eatingEntries = [4200, 3800, 5500, 2800, 2300];
     for (const cents of eatingEntries) {
       await query(
         `INSERT INTO spending_entries (user_id, spending_goal_id, amount_cents, description, spent_at)
-         VALUES ($1, $2, $3, $4, CURRENT_DATE - (random() * 20)::int)`,
+         VALUES ($1, $2, $3, $4, GREATEST(date_trunc('month', CURRENT_DATE)::date, CURRENT_DATE - (random() * 20)::int))`,
         [userId, eatingOutId, cents, "restaurant"]
       );
     }
@@ -76,7 +77,7 @@ export async function seed() {
     for (const cents of rideEntries) {
       await query(
         `INSERT INTO spending_entries (user_id, spending_goal_id, amount_cents, description, spent_at)
-         VALUES ($1, $2, $3, $4, CURRENT_DATE - (random() * 20)::int)`,
+         VALUES ($1, $2, $3, $4, GREATEST(date_trunc('month', CURRENT_DATE)::date, CURRENT_DATE - (random() * 20)::int))`,
         [userId, rideshareId, cents, "ride"]
       );
     }

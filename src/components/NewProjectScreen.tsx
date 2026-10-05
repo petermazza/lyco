@@ -20,6 +20,7 @@ export function NewProjectScreen() {
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [goalCreated, setGoalCreated] = useState(false);
+  const [goalId, setGoalId] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -93,8 +94,13 @@ export function NewProjectScreen() {
       }
 
       // Check if any tool call created a goal
-      if (data.toolCalls?.some((tc: { name: string }) => tc.name === "create_goal")) {
+      const created = data.toolResults?.find(
+        (r: { tool: string; success: boolean; data?: { goal_id?: string } }) =>
+          r.tool === "create_goal" && r.success
+      );
+      if (created) {
         setGoalCreated(true);
+        if (created.data?.goal_id) setGoalId(created.data.goal_id);
       }
     } catch {
       setMessages((prev) => [...prev, { who: "bot", text: "Something went wrong. Try again." }]);
@@ -170,6 +176,11 @@ export function NewProjectScreen() {
 
         {goalCreated && !loading && (
           <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-6)", animation: "noct-in 260ms ease both" }}>
+            {goalId && (
+              <Link href={`/schedule?goal=${goalId}`} className="btn btn-primary" style={{ minHeight: 48, fontSize: 15, width: "100%" }}>
+                find time for this
+              </Link>
+            )}
             <Link href="/" className="btn btn-secondary" style={{ minHeight: 48, fontSize: 15, width: "100%" }}>
               Back to home
             </Link>

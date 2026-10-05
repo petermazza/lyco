@@ -1,44 +1,40 @@
 "use client";
 
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 
 interface Slot {
+  weekday: number;
   day: string;
+  start: string;
   time: string;
+  durationMinutes: number;
   history: string;
 }
 
-const schedulePlans: Record<number, { reasoning: string; sessions: string; slots: Slot[] }> = {
-  2: {
-    reasoning: "Twice a week gets you there with room to spare.",
-    sessions: "that is 18 sessions before 31 October.",
-    slots: [
-      { day: "Tuesday", time: "7:00 – 8:30 pm", history: "free on 8 of the last 10 Tuesday evenings" },
-      { day: "Saturday", time: "9:30 – 11:00 am", history: "free most Saturday mornings" },
-    ],
-  },
-  1: {
-    reasoning: "Once a week still lands it, with less slack near the end.",
-    sessions: "that is 9 sessions before 31 October.",
-    slots: [
-      { day: "Saturday", time: "9:30 – 11:00 am", history: "free most Saturday mornings" },
-    ],
-  },
-};
+interface Proposal {
+  goal: { id: string; title: string; deadline: string | null; weeksLeft: number | null };
+  reasoning: string;
+  sessions: string;
+  calendarConnected: boolean;
+  slots: Slot[];
+}
 
 export function ScheduleProposalScreen() {
   const router = useRouter();
-  const [pace, setPace] = useState<1 | 2>(2);
+  const searchParams = useSearchParams();
+  const goalId = searchParams.get("goal");
+
+  const [authed, setAuthed] = useState<boolean | null>(null);
+  const [proposal, setProposal] = useState<Proposal | null>(null);
+  const [proposalState, setProposalState] = useState<"loading" | "loaded" | "error">("loading");
+  const [perWeek, setPerWeek] = useState<1 | 2>(2);
+  const [variant, setVariant] = useState(0);
   const [confirmed, setConfirmed] = useState(false);
   const [confirming, setConfirming] = useState(false);
-  const [calendarConnected, setCalendarConnected] = useState(false);
-  const [calendarChecked, setCalendarChecked] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [authed, setAuthed] = useState<boolean | null>(null);
-
-  const plan = schedulePlans[pace];
+  const fetchGen = useRef(0);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -52,27 +48,45 @@ export function ScheduleProposalScreen() {
         }
         setAuthed(true);
       })
-      .catch(() => {
-        setAuthed(false);
-      })
+      .catch(() => setAuthed(false))
       .finally(() => clearTimeout(timeoutId));
   }, [router]);
 
-  useEffect(() => {
-    if (authed !== true) return;
+  const fetchProposal = useCallback(async (weeks: number, v: number) => {
+    const gen = ++fetchGen.current;
+    setProposalState("loading");
+    setError(null);
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 8000);
-    fetch("/api/calendar/status", { signal: controller.signal })
-      .then((r) => r.json())
-      .then((d) => {
-        setCalendarConnected(d.connected ?? false);
-        setCalendarChecked(true);
-      })
-      .catch(() => setCalendarChecked(true))
-      .finally(() => clearTimeout(timeoutId));
-  }, [authed]);
+    const timeoutId = setTimeout(() => controller.abort(), 30000);
+    try {
+      const params = new URLSearchParams({ perWeek: String(weeks), variant: String(v) });
+      if (goalId) params.set("goalId", goalId);
+      const res = await fetch(`/api/schedule/proposal?${params}`, { signal: controller.signal });
+      if (gen !== fetchGen.current) return;
+      if (res.status === 404) {
+        router.replace("/new");
+        return;
+      }
+      if (!res.ok) {
+        setProposalState("error");
+        return;
+      }
+      const data = await res.json();
+      setProposal(data);
+      setProposalState("loaded");
+    } catch {
+      if (gen === fetchGen.current) setProposalState("error");
+    } finally {
+      clearTimeout(timeoutId);
+    }
+  }, [goalId, router]);
+
+  useEffect(() => {
+    if (authed === true) fetchProposal(perWeek, variant);
+  }, [authed, perWeek, variant, fetchProposal]);
 
   const handleAccept = useCallback(async () => {
+    if (!proposal || proposal.slots.length === 0) return;
     setConfirming(true);
     setError(null);
     const controller = new AbortController();
@@ -82,19 +96,13 @@ export function ScheduleProposalScreen() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          goalTitle: "New job — 5 first rounds",
-          slots: plan.slots.map((s) => {
-            const timeMatch = s.time.match(/(\d{1,2}):(\d{2})\s*[\u2013-]\s*(\d{1,2}):(\d{2})\s*(am|pm)/i);
-            const durationMinutes = timeMatch
-              ? (parseInt(timeMatch[3], 10) * 60 + parseInt(timeMatch[4], 10)) - (parseInt(timeMatch[1], 10) * 60 + parseInt(timeMatch[2], 10))
-              : 90;
-            return {
-              day: s.day,
-              time: s.time,
-              durationMinutes: Math.abs(durationMinutes) || 90,
-              title: "New job — work session",
-            };
-          }),
+          goalId: proposal.goal.id,
+          goalTitle: proposal.goal.title,
+          slots: proposal.slots.map((s) => ({
+            start: s.start,
+            durationMinutes: s.durationMinutes,
+            title: `${proposal.goal.title} — work session`,
+          })),
         }),
         signal: controller.signal,
       });
@@ -117,7 +125,7 @@ export function ScheduleProposalScreen() {
       clearTimeout(timeoutId);
       setConfirming(false);
     }
-  }, [plan.slots]);
+  }, [proposal]);
 
   const handleConnectCalendar = useCallback(async () => {
     const res = await fetch("/api/calendar/connect");
@@ -127,15 +135,22 @@ export function ScheduleProposalScreen() {
     }
   }, []);
 
-  if (authed !== true) {
+  if (authed !== true || proposalState === "loading") {
     return (
       <div className="mobile-shell" style={{ position: "relative", height: "100dvh", display: "flex", flexDirection: "column", overflow: "hidden" }}>
         <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center" }}>
-          <span style={{ animation: "noct-pulse 1.4s ease-in-out infinite", fontSize: 13, color: "var(--app-text-quiet)" }}>loading…</span>
+          <span style={{ animation: "noct-pulse 1.4s ease-in-out infinite", fontSize: 13, color: "var(--app-text-quiet)" }}>
+            {proposalState === "error" ? "something went wrong." : "finding your open times…"}
+          </span>
         </div>
       </div>
     );
   }
+
+  if (!proposal) return null;
+
+  const goal = proposal.goal;
+  const calendarConnected = proposal.calendarConnected;
 
   return (
     <div className="mobile-shell" style={{ position: "relative", height: "100dvh", display: "flex", flexDirection: "column", overflow: "hidden" }}>
@@ -143,24 +158,30 @@ export function ScheduleProposalScreen() {
 
         <header>
           <div style={{ fontFamily: "var(--font-heading)", fontWeight: 500, fontSize: 20, lineHeight: 1.25, letterSpacing: "-0.015em", textWrap: "pretty" }}>
-            New job — 5 first rounds
+            {goal.title}
           </div>
-          <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 6, fontSize: 12.5, color: "color-mix(in srgb, var(--color-text) 50%, transparent)" }}>
-            <span>by 31 October</span>
-            <span style={{ width: 3, height: 3, borderRadius: "50%", background: "color-mix(in srgb, var(--color-text) 30%, transparent)" }} />
-            <span>9 weeks left</span>
-          </div>
+          {goal.deadline && (
+            <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 6, fontSize: 12.5, color: "color-mix(in srgb, var(--color-text) 50%, transparent)" }}>
+              <span>by {new Date(goal.deadline + "T00:00:00").toLocaleDateString("en-US", { day: "numeric", month: "long" })}</span>
+              {goal.weeksLeft !== null && (
+                <>
+                  <span style={{ width: 3, height: 3, borderRadius: "50%", background: "color-mix(in srgb, var(--color-text) 30%, transparent)" }} />
+                  <span>{goal.weeksLeft} weeks left</span>
+                </>
+              )}
+            </div>
+          )}
         </header>
 
         <p style={{ margin: 0, fontFamily: "var(--font-heading)", fontWeight: 500, fontSize: 17, lineHeight: 1.4, letterSpacing: "-0.01em", color: "var(--color-accent-300)", textWrap: "pretty" }}>
-          {plan.reasoning}
+          {proposal.reasoning}
         </p>
 
         <section>
           <h6 style={{ margin: "0 0 var(--space-4)", color: "color-mix(in srgb, var(--color-text) 45%, transparent)" }}>Proposed times</h6>
           <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-3)" }}>
-            {plan.slots.map((slot, i) => (
-              <div key={i} style={{ border: "1px solid var(--color-divider)", borderRadius: "var(--radius-lg)", padding: "var(--space-6)", animation: "noct-in 240ms ease both" }}>
+            {proposal.slots.map((slot, i) => (
+              <div key={i} data-testid="slot" style={{ border: "1px solid var(--color-divider)", borderRadius: "var(--radius-lg)", padding: "var(--space-6)", animation: "noct-in 240ms ease both" }}>
                 <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 12 }}>
                   <span style={{ fontFamily: "var(--font-heading)", fontWeight: 500, fontSize: 18, letterSpacing: "-0.01em" }}>{slot.day}</span>
                   <span style={{ fontSize: 14, fontVariantNumeric: "tabular-nums", color: "color-mix(in srgb, var(--color-text) 70%, transparent)" }}>{slot.time}</span>
@@ -171,10 +192,15 @@ export function ScheduleProposalScreen() {
                 </div>
               </div>
             ))}
+            {proposal.slots.length === 0 && (
+              <div style={{ fontSize: "var(--app-size-body)", color: "var(--app-text-secondary)", padding: "10px 0" }}>
+                no clear openings in the next few weeks.
+              </div>
+            )}
           </div>
         </section>
 
-        {calendarChecked && !calendarConnected && !confirmed && (
+        {!calendarConnected && !confirmed && (
           <div style={{ border: "1px solid var(--color-divider)", borderRadius: "var(--radius-lg)", padding: "var(--space-6)", animation: "noct-in 240ms ease both" }}>
             <div style={{ fontSize: 14, lineHeight: 1.5, color: "color-mix(in srgb, var(--color-text) 60%, transparent)", textWrap: "pretty" }}>
               Connect Google Calendar to write these blocks to your real calendar. You can still confirm without it — blocks will be saved here only.
@@ -207,7 +233,7 @@ export function ScheduleProposalScreen() {
             <button
               className="btn btn-secondary"
               style={{ minHeight: 48, fontSize: 15, width: "100%", opacity: confirming ? 0.5 : 1 }}
-              disabled={confirming}
+              disabled={confirming || proposal.slots.length === 0}
               onClick={handleAccept}
             >
               {confirming ? "Confirming…" : "Accept these times"}
@@ -215,16 +241,19 @@ export function ScheduleProposalScreen() {
             <button
               className="btn btn-secondary"
               style={{ minHeight: 48, fontSize: 15, width: "100%" }}
-              onClick={() => setConfirmed(false)}
+              onClick={() => setVariant((v) => v + 1)}
             >
               Pick different times
             </button>
             <button
               className="btn btn-secondary"
               style={{ minHeight: 48, fontSize: 15, width: "100%" }}
-              onClick={() => setPace((p) => (p === 2 ? 1 : 2))}
+              onClick={() => {
+                setVariant(0);
+                setPerWeek((p) => (p === 2 ? 1 : 2));
+              }}
             >
-              Go less often
+              {perWeek === 2 ? "Go less often" : "Go more often"}
             </button>
           </div>
         )}
@@ -253,7 +282,7 @@ export function ScheduleProposalScreen() {
             background: "linear-gradient(to right, transparent, var(--color-divider) 24px, var(--color-divider) calc(100% - 24px), transparent) no-repeat top / 100% 1px",
           }}
         >
-          <div style={{ fontSize: 12.5, color: "color-mix(in srgb, var(--color-text) 55%, transparent)" }}>{plan.sessions}</div>
+          <div style={{ fontSize: 12.5, color: "color-mix(in srgb, var(--color-text) 55%, transparent)" }}>{proposal.sessions}</div>
           <div style={{ fontSize: 12.5, lineHeight: 1.5, color: "color-mix(in srgb, var(--color-text) 40%, transparent)", textWrap: "pretty" }}>
             confirming locks the deadline. changing it later is allowed, and it goes on this project's record permanently.
           </div>

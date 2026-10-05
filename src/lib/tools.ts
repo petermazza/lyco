@@ -9,7 +9,8 @@ export type ToolName =
   | "update_goal"
   | "schedule_block"
   | "complete_block"
-  | "move_block";
+  | "move_block"
+  | "update_block";
 
 export interface ToolDefinition {
   name: ToolName;
@@ -152,6 +153,26 @@ export const toolDefinitions: ToolDefinition[] = [
       required: ["block_id", "target"],
     },
   },
+  {
+    name: "update_block",
+    description:
+      "Change what a block is about — its title. " +
+      "Use this when the user agrees to tackle a smaller or different task during a block.",
+    input_schema: {
+      type: "object",
+      properties: {
+        block_id: {
+          type: "string",
+          description: "The UUID of the block to rename.",
+        },
+        title: {
+          type: "string",
+          description: "The new task for this block, as a short plain sentence.",
+        },
+      },
+      required: ["block_id", "title"],
+    },
+  },
 ];
 
 // ─── Validation ──────────────────────────────────────────────
@@ -243,6 +264,15 @@ export function validateToolCall(call: ToolCall): ValidationResult {
       }
       if (!["later_today", "tomorrow_morning", "add_15", "drop"].includes(args.target as string)) {
         errors.push("target is required and must be one of: later_today, tomorrow_morning, add_15, drop");
+      }
+      break;
+    }
+    case "update_block": {
+      if (!isUUID(args.block_id)) {
+        errors.push("block_id is required and must be a valid UUID");
+      }
+      if (typeof args.title !== "string" || args.title.trim().length === 0) {
+        errors.push("title is required and must be a non-empty string");
       }
       break;
     }

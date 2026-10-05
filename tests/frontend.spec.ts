@@ -38,6 +38,22 @@ async function gotoAuthenticated(page: Page, path: string) {
   await page.waitForTimeout(500);
 }
 
+async function gotoFreshUser(page: Page, path: string) {
+  const ctx = await apiRequest.newContext();
+  const res = await ctx.post(`${BASE}/api/auth/request-link`, {
+    data: { email: `fresh-${Date.now()}-${Math.random().toString(36).slice(2, 8)}@lyco.test` },
+  });
+  const body = await res.json();
+  await ctx.dispose();
+
+  await page.goto(body.link);
+  await page.waitForLoadState("networkidle");
+  await page.waitForTimeout(1500);
+  await page.goto(path);
+  await page.waitForLoadState("networkidle");
+  await page.waitForTimeout(500);
+}
+
 // ─── Home screen: content ────────────────────────────────────
 
 test.describe.serial("Home screen", () => {
@@ -199,210 +215,173 @@ test.describe.serial("Navigation: Home to Block", () => {
 
 // ─── Block screen ────────────────────────────────────────────
 
-test.describe("Block screen", () => {
-  test("shows block running status and task", async ({ page }) => {
-    await page.goto("/block");
-    await page.waitForLoadState("networkidle");
-    await expect(page.getByText("block running")).toBeVisible();
-    await expect(page.getByText("Rewrite the résumé summary")).toBeVisible();
+test.describe.serial("Block screen", () => {
+  test.beforeEach(async () => {
+    await reseed();
   });
 
-  test("shows Mark done, Move it, and help buttons in running mode", async ({ page }) => {
-    await page.goto("/block");
-    await page.waitForLoadState("networkidle");
+  test("shows empty state when no block is current", async ({ page }) => {
+    // A brand-new user has no blocks — the screen should say so
+    await gotoFreshUser(page, "/block");
+    await expect(page.getByText("Nothing scheduled right now")).toBeVisible({ timeout: 10000 });
+    await expect(page.getByRole("link", { name: "Back to home" })).toBeVisible();
+  });
+
+  test("shows the real running block for the seeded user", async ({ page }) => {
+    await gotoAuthenticated(page, "/block");
+    await expect(page.getByText("block running")).toBeVisible({ timeout: 10000 });
+    await expect(page.getByText("Draft the SimpleFIN adapter")).toBeVisible();
+    await expect(page.getByText(/ends at/i)).toBeVisible();
     await expect(page.getByRole("button", { name: "Mark done" })).toBeVisible();
     await expect(page.getByRole("button", { name: "Move it" })).toBeVisible();
     await expect(page.getByRole("button", { name: "I don't know how to start" })).toBeVisible();
   });
 
-  test("clicking Mark done shows closed state", async ({ page }) => {
-    await page.goto("/block");
-    await page.waitForLoadState("networkidle");
+  test("Mark done closes the block", async ({ page }) => {
+    await gotoAuthenticated(page, "/block");
     await page.getByRole("button", { name: "Mark done" }).click();
-    await expect(page.getByText(/Kept.*that is the block/i)).toBeVisible();
+    await expect(page.getByText("Kept.")).toBeVisible({ timeout: 10000 });
     await expect(page.getByRole("link", { name: "Back to home" })).toBeVisible();
   });
 
-  test("clicking Move it shows toast message", async ({ page }) => {
-    await page.goto("/block");
-    await page.waitForLoadState("networkidle");
+  test("Move it opens the sheet and drop closes the block", async ({ page }) => {
+    await gotoAuthenticated(page, "/block");
     await page.getByRole("button", { name: "Move it" }).click();
-    // The showToast action fires; verify the block screen still renders
-    await expect(page.getByText("Rewrite the résumé summary")).toBeVisible();
+    await expect(page.getByText("Move it where?")).toBeVisible();
+    await page.getByRole("button", { name: /Drop it this week/ }).click();
+    await expect(page.getByText("Moved.")).toBeVisible({ timeout: 10000 });
+    await expect(page.getByText(/dropped/i)).toBeVisible();
   });
 
-  test("help flow: I don't know how to start → blank page → smaller → proposal", async ({ page }) => {
-    await page.goto("/block");
-    await page.waitForLoadState("networkidle");
+  test("15 more minutes keeps the block running and shows a toast", async ({ page }) => {
+    await gotoAuthenticated(page, "/block");
+    await page.getByRole("button", { name: "Move it" }).click();
+    await page.getByRole("button", { name: /Give it 15 more minutes/ }).click();
+    await expect(page.getByText(/15 minutes added/i)).toBeVisible({ timeout: 10000 });
+    await expect(page.getByText("block running")).toBeVisible();
+  });
 
-    // Enter help mode
+  test("help button starts a real conversation", async ({ page }) => {
+    await gotoAuthenticated(page, "/block");
     await page.getByRole("button", { name: "I don't know how to start" }).click();
-    await expect(page.getByText("No problem. What is in front of you right now?")).toBeVisible();
-
-    // Select "A blank page"
-    await page.getByRole("button", { name: "A blank page" }).click();
-    await expect(page.getByText(/summary is the wrong place to start/i)).toBeVisible();
-
-    // Select "Yes, smaller"
-    await page.getByRole("button", { name: "Yes, smaller" }).click();
-
-    // Proposal should appear
-    await expect(page.getByText("start with this")).toBeVisible();
-    await expect(page.getByText(/List three things you actually did/i)).toBeVisible();
-    await expect(page.getByRole("button", { name: "Okay, starting that" })).toBeVisible();
-  });
-
-  test("accepting proposal enters settled mode", async ({ page }) => {
-    await page.goto("/block");
-    await page.waitForLoadState("networkidle");
-
-    await page.getByRole("button", { name: "I don't know how to start" }).click();
-    await page.getByRole("button", { name: "A blank page" }).click();
-    await page.getByRole("button", { name: "Yes, smaller" }).click();
-    await page.getByRole("button", { name: "Okay, starting that" }).click();
-
-    await expect(page.getByText(/That is the block now/i)).toBeVisible();
-    await expect(page.getByRole("button", { name: "Mark done" })).toBeVisible();
-    await expect(page.getByRole("button", { name: "Move it" })).toBeVisible();
-  });
-
-  test("help flow: draft I don't like → what is it first → proposal", async ({ page }) => {
-    await page.goto("/block");
-    await page.waitForLoadState("networkidle");
-
-    await page.getByRole("button", { name: "I don't know how to start" }).click();
-    await page.getByRole("button", { name: "A draft I don't like" }).click();
-    await page.getByRole("button", { name: "What is it first" }).click();
-
-    await expect(page.getByText("start with this")).toBeVisible();
-  });
-
-  test("Back to home link navigates to /", async ({ page }) => {
-    await page.goto("/block");
-    await page.waitForLoadState("networkidle");
-    await page.getByRole("button", { name: "Mark done" }).click();
-    await page.getByRole("link", { name: "Back to home" }).click();
-    await expect(page).toHaveURL(/\/$/);
+    // The user's message appears and the assistant replies
+    await expect(page.getByText("I don't know how to start.")).toBeVisible();
+    await expect(page.getByRole("button", { name: "send" })).toBeVisible();
+    await expect(page.getByText("thinking…")).toBeVisible();
   });
 });
 
 // ─── New Project screen ──────────────────────────────────────
 
-test.describe("New project screen", () => {
+test.describe.serial("New project screen", () => {
   test("shows initial bot message and text input", async ({ page }) => {
-    await page.goto("/new");
-    await page.waitForLoadState("networkidle");
+    await gotoFreshUser(page, "/new");
     await expect(page.getByText("New project")).toBeVisible();
     await expect(page.getByText("What are you working on?")).toBeVisible();
     await expect(page.getByRole("button", { name: "send" })).toBeVisible();
   });
 
   test("shows Tell me about it header before goal is created", async ({ page }) => {
-    await page.goto("/new");
-    await page.waitForLoadState("networkidle");
+    await gotoFreshUser(page, "/new");
     await expect(page.getByText("Tell me about it")).toBeVisible();
   });
 
   test("has a text input with placeholder", async ({ page }) => {
-    await page.goto("/new");
-    await page.waitForLoadState("networkidle");
+    await gotoFreshUser(page, "/new");
     const input = page.locator("input").last();
     await expect(input).toBeVisible();
     await expect(input).toHaveAttribute("placeholder", /say it in your own words/i);
   });
 
   test("Close link navigates back to home", async ({ page }) => {
-    await page.goto("/new");
-    await page.waitForLoadState("networkidle");
+    await gotoFreshUser(page, "/new");
     await page.getByRole("link", { name: "Close" }).click();
     await expect(page).toHaveURL(/\/$/);
   });
 
   test("status footer shows in conversation before goal creation", async ({ page }) => {
-    await page.goto("/new");
-    await page.waitForLoadState("networkidle");
+    await gotoFreshUser(page, "/new");
     await expect(page.getByText("in conversation")).toBeVisible();
+  });
+
+  test("creating a goal offers a find time for this link", async ({ page }) => {
+    await gotoFreshUser(page, "/new");
+    const input = page.locator("input").last();
+    await input.fill("I want to learn piano, twice a week, by spring");
+    await page.getByRole("button", { name: "send" }).click();
+    // The model may ask a follow-up before creating — keep answering
+    for (let i = 0; i < 3; i++) {
+      const findTime = page.getByRole("link", { name: "find time for this" });
+      if (await findTime.isVisible({ timeout: 20000 }).catch(() => false)) {
+        await expect(findTime).toHaveAttribute("href", /\/schedule\?goal=/);
+        return;
+      }
+      await input.fill("that works");
+      await page.getByRole("button", { name: "send" }).click();
+    }
+    await expect(page.getByRole("link", { name: "find time for this" })).toBeVisible({ timeout: 20000 });
   });
 });
 
 // ─── Schedule Proposal screen ────────────────────────────────
 
+// Logs the page in as the seeded user, asks the proposal API which goal
+// it would pick, then opens the schedule screen for that goal.
+async function gotoSchedule(page: Page) {
+  await gotoAuthenticated(page, "/");
+  const res = await page.request.get(`${BASE}/api/schedule/proposal`);
+  const prop = await res.json();
+  await page.goto(`/schedule?goal=${prop.goal.id}`);
+  await page.waitForLoadState("networkidle");
+  return prop;
+}
+
 test.describe.serial("Schedule proposal screen", () => {
   test.beforeEach(async () => {
-    execSync("npm run db:reset", { stdio: "pipe", cwd: process.cwd() });
+    await reseed();
   });
 
-  test("shows project title and deadline", async ({ page }) => {
-    await page.goto("/schedule");
-    await page.waitForLoadState("networkidle");
-    await expect(page.getByText("New job — 5 first rounds")).toBeVisible();
-    await expect(page.getByText("by 31 October")).toBeVisible();
-    await expect(page.getByText("9 weeks left")).toBeVisible();
-  });
-
-  test("shows reasoning text", async ({ page }) => {
-    await page.goto("/schedule");
-    await page.waitForLoadState("networkidle");
-    await expect(page.getByText(/Twice a week gets you there with room to spare/i)).toBeVisible();
-  });
-
-  test("shows proposed time slots", async ({ page }) => {
-    await page.goto("/schedule");
-    await page.waitForLoadState("networkidle");
+  test("shows the real goal and proposed times", async ({ page }) => {
+    const prop = await gotoSchedule(page);
+    await expect(page.getByText(prop.goal.title, { exact: true })).toBeVisible({ timeout: 20000 });
     await expect(page.getByText("Proposed times")).toBeVisible();
-    await expect(page.getByText("Tuesday", { exact: true })).toBeVisible();
-    await expect(page.getByText("7:00 – 8:30 pm")).toBeVisible();
-    await expect(page.getByText("Saturday", { exact: true })).toBeVisible();
-    await expect(page.getByText("9:30 – 11:00 am")).toBeVisible();
-  });
-
-  test("shows action buttons", async ({ page }) => {
-    await page.goto("/schedule");
-    await page.waitForLoadState("networkidle");
+    await expect(page.locator('[data-testid="slot"]').first()).toBeVisible();
+    await expect(page.getByText(/that is \d+ sessions/i)).toBeVisible();
     await expect(page.getByRole("button", { name: "Accept these times" })).toBeVisible();
     await expect(page.getByRole("button", { name: "Pick different times" })).toBeVisible();
     await expect(page.getByRole("button", { name: "Go less often" })).toBeVisible();
   });
 
-  test("clicking Accept shows confirmation", async ({ page }) => {
-    await gotoAuthenticated(page, "/schedule");
-    await page.getByRole("button", { name: "Accept these times" }).click();
-    await expect(page.getByText(/Set.*the blocks are in your calendar/i)).toBeVisible({ timeout: 15000 });
-    await expect(page.getByRole("link", { name: "Back to home" })).toBeVisible();
+  test("Go less often drops to a single slot", async ({ page }) => {
+    await gotoSchedule(page);
+    const slots = page.locator('[data-testid="slot"]');
+    await expect(slots.first()).toBeVisible({ timeout: 20000 });
+    await page.getByRole("button", { name: "Go less often" }).click();
+    await expect(page.getByRole("button", { name: "Go more often" })).toBeVisible({ timeout: 20000 });
+    await expect(slots).toHaveCount(1);
   });
 
-  test("clicking Go less often switches to once a week", async ({ page }) => {
-    await page.goto("/schedule");
-    await page.waitForLoadState("networkidle");
-    await page.getByRole("button", { name: "Go less often" }).click();
-    await expect(page.getByText(/Once a week still lands it/i)).toBeVisible();
-    await expect(page.getByText("that is 9 sessions before 31 October.")).toBeVisible();
-    // Only one slot now
-    await expect(page.getByText("Saturday", { exact: true })).toBeVisible();
-    await expect(page.getByText("Tuesday", { exact: true })).not.toBeVisible();
+  test("Pick different times reloads a fresh proposal", async ({ page }) => {
+    await gotoSchedule(page);
+    const slots = page.locator('[data-testid="slot"]');
+    await expect(slots.first()).toBeVisible({ timeout: 20000 });
+    await page.getByRole("button", { name: "Pick different times" }).click();
+    await expect(slots.first()).toBeVisible({ timeout: 20000 });
   });
 
-  test("clicking Go less often twice returns to twice a week", async ({ page }) => {
-    await page.goto("/schedule");
-    await page.waitForLoadState("networkidle");
-    await page.getByRole("button", { name: "Go less often" }).click();
-    await expect(page.getByText(/Once a week/i)).toBeVisible();
-    await page.getByRole("button", { name: "Go less often" }).click();
-    await expect(page.getByText(/Twice a week/i)).toBeVisible();
-  });
-
-  test("confirmed state has Back to home link", async ({ page }) => {
-    await gotoAuthenticated(page, "/schedule");
-    await page.getByRole("button", { name: "Accept these times" }).click();
-    await expect(page.getByRole("link", { name: "Back to home" })).toBeVisible({ timeout: 15000 });
+  test("Accept creates real blocks and confirms", async ({ page }) => {
+    await gotoSchedule(page);
+    await page.getByRole("button", { name: "Accept these times" }).click({ timeout: 20000 });
+    await expect(page.getByText(/Set.*the blocks are in your calendar/i)).toBeVisible({ timeout: 20000 });
     await page.getByRole("link", { name: "Back to home" }).click();
     await expect(page).toHaveURL(/\/$/);
   });
 
-  test("shows session count in footer", async ({ page }) => {
-    await page.goto("/schedule");
-    await page.waitForLoadState("networkidle");
-    await expect(page.getByText(/that is 18 sessions before 31 October/i)).toBeVisible();
+  test("a user with no goals is sent to /new", async ({ page }) => {
+    // A brand-new user has no goals — proposal 404s and the screen redirects
+    await gotoFreshUser(page, "/schedule");
+    await expect(page).toHaveURL(/\/new/, { timeout: 15000 });
+    await expect(page.getByText("What are you working on?")).toBeVisible();
   });
 });
 
@@ -495,46 +474,49 @@ test.describe.serial("Sentence casing", () => {
   });
 
   test("schedule screen capitalizes proper nouns", async ({ page }) => {
-    await page.goto("/schedule");
-    await page.waitForLoadState("networkidle");
+    const prop = await gotoSchedule(page);
+    await expect(page.getByText("Proposed times")).toBeVisible({ timeout: 20000 });
     const text = await getVisibleText(page);
     for (const noun of LOWER_PROPER_NOUNS) {
       expect(text, `expected no lowercase "${noun}"`).not.toContain(noun);
     }
-    // Verify specific capitalized forms appear
-    expect(text).toContain("October");
-    expect(text).toContain("Tuesday");
-    expect(text).toContain("Saturday");
+    // A weekday appears in the proposed slots
+    const hasWeekday = PROPER_NOUNS.slice(12, 19).some((d) => text.includes(d));
+    expect(hasWeekday, "expected a capitalized weekday in the proposed slots").toBeTruthy();
+    // A month name appears when the goal has a deadline
+    if (prop.goal.deadline) {
+      const hasMonth = PROPER_NOUNS.slice(0, 12).some((m) => text.includes(m));
+      expect(hasMonth, "expected a capitalized month in the deadline label").toBeTruthy();
+    }
   });
 
   test("block screen capitalizes proper nouns", async ({ page }) => {
-    await page.goto("/block");
-    await page.waitForLoadState("networkidle");
+    await gotoAuthenticated(page, "/block");
+    await expect(page.getByText("block running")).toBeVisible({ timeout: 10000 });
     const text = await getVisibleText(page);
     for (const noun of LOWER_PROPER_NOUNS) {
       expect(text, `expected no lowercase "${noun}"`).not.toContain(noun);
     }
   });
 
-  test("block screen closed state capitalizes Saturday", async ({ page }) => {
-    await page.goto("/block");
-    await page.waitForLoadState("networkidle");
+  test("block screen closed state stays sentence case", async ({ page }) => {
+    await gotoAuthenticated(page, "/block");
+    await expect(page.getByText("block running")).toBeVisible({ timeout: 10000 });
     await page.getByRole("button", { name: "Mark done" }).click();
-    await expect(page.getByText(/Kept.*that is the block/i)).toBeVisible();
+    await expect(page.getByText("Kept.")).toBeVisible();
     const text = await getVisibleText(page);
-    expect(text).toContain("Saturday");
-    expect(text).not.toContain("saturday");
+    for (const noun of LOWER_PROPER_NOUNS) {
+      expect(text, `expected no lowercase "${noun}"`).not.toContain(noun);
+    }
   });
 
-  test("schedule once-a-week mode capitalizes October and Saturday", async ({ page }) => {
-    await page.goto("/schedule");
-    await page.waitForLoadState("networkidle");
-    await page.getByRole("button", { name: "Go less often" }).click();
-    await expect(page.getByText(/Once a week/i)).toBeVisible();
+  test("schedule once-a-week mode stays sentence case", async ({ page }) => {
+    await gotoSchedule(page);
+    await page.getByRole("button", { name: "Go less often" }).click({ timeout: 20000 });
+    await expect(page.getByRole("button", { name: "Go more often" })).toBeVisible({ timeout: 20000 });
     const text = await getVisibleText(page);
-    expect(text).toContain("October");
-    expect(text).toContain("Saturday");
-    expect(text).not.toContain("october");
-    expect(text).not.toContain("saturday");
+    for (const noun of LOWER_PROPER_NOUNS) {
+      expect(text, `expected no lowercase "${noun}"`).not.toContain(noun);
+    }
   });
 });

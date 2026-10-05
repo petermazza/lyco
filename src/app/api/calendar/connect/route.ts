@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/session";
 import { getAuthUrl } from "@/lib/calendar/google";
+import { calendarRedirectUri } from "@/lib/app-url";
 
 export async function GET() {
   const user = await getCurrentUser();
@@ -8,8 +9,7 @@ export async function GET() {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const redirectUri = `${process.env.NEXT_PUBLIC_BASE_URL ?? "http://localhost:3001"}/api/calendar/callback`;
-  const authUrl = getAuthUrl(redirectUri);
+  const authUrl = getAuthUrl(calendarRedirectUri());
 
   return NextResponse.json({ authUrl });
 }

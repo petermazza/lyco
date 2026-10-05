@@ -4,6 +4,8 @@ import { execSync } from "child_process";
 const BASE = "http://localhost:3001";
 
 test.describe.serial("Chat to goal flow", () => {
+  // LLM round-trips can exceed the default 30s test timeout
+  test.setTimeout(90000);
   test.beforeEach(async () => {
     execSync("npm run db:reset", { stdio: "pipe", cwd: process.cwd() });
   });
@@ -101,8 +103,9 @@ test.describe.serial("Chat to goal flow", () => {
     const createGoalCall = chatData.toolCalls?.find((tc: { name: string }) => tc.name === "create_goal");
     expect(createGoalCall).toBeTruthy();
 
-    // The tool result should be successful
+    // The tool result should be successful and expose the new goal's id
     const goalResult = chatData.toolResults?.find((tr: { tool: string }) => tr.tool === "create_goal");
     expect(goalResult?.success).toBeTruthy();
+    expect(goalResult?.data?.goal_id).toBeTruthy();
   });
 });

@@ -69,8 +69,11 @@ CREATE TABLE IF NOT EXISTS blocks (
   duration_minutes  INTEGER NOT NULL,
   status            TEXT NOT NULL DEFAULT 'scheduled',
   progress          INTEGER NOT NULL DEFAULT 0,
+  calendar_event_id TEXT,
   created_at        TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+ALTER TABLE blocks ADD COLUMN IF NOT EXISTS calendar_event_id TEXT;
 
 CREATE INDEX IF NOT EXISTS idx_blocks_user_id ON blocks(user_id);
 CREATE INDEX IF NOT EXISTS idx_blocks_scheduled_at ON blocks(scheduled_at);

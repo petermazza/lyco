@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/session";
 import { exchangeCode } from "@/lib/calendar/google";
 import { setSecret } from "@/lib/secrets";
+import { calendarRedirectUri } from "@/lib/app-url";
 
 export async function GET(req: NextRequest) {
   const user = await getCurrentUser();
@@ -20,10 +21,8 @@ export async function GET(req: NextRequest) {
     return NextResponse.redirect(new URL("/?error=no_code", req.url));
   }
 
-  const redirectUri = `${process.env.NEXT_PUBLIC_BASE_URL ?? "http://localhost:3001"}/api/calendar/callback`;
-
   try {
-    const { refreshToken, accessToken } = await exchangeCode(code, redirectUri);
+    const { refreshToken, accessToken } = await exchangeCode(code, calendarRedirectUri());
 
     await setSecret(user.userId, "google_calendar_refresh_token", refreshToken);
     await setSecret(user.userId, "google_calendar_access_token", accessToken);

@@ -1,5 +1,10 @@
+import { Suspense } from "react";
 import { ScheduleProposalScreen } from "@/components/ScheduleProposalScreen";
 
 export default function Page() {
-  return <ScheduleProposalScreen />;
+  return (
+    <Suspense>
+      <ScheduleProposalScreen />
+    </Suspense>
+  );
 }

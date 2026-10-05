@@ -19,9 +19,10 @@ export async function POST(req: NextRequest) {
   }));
 
   const sessionId = body.sessionId ?? null;
+  const context = typeof body.context === "string" ? body.context : undefined;
 
   try {
-    const response = await callLLM(messages, user.userId);
+    const response = await callLLM(messages, user.userId, context);
 
     await logInteraction(user.userId, sessionId, messages, response, "claude-sonnet-5");
 

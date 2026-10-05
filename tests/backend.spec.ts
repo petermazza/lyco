@@ -264,3 +264,240 @@ test.describe("Database: seed data", () => {
     await ctx.dispose();
   });
 });
+
+// ─── Blocks API ──────────────────────────────────────────────
+// Unique email per run so leftover blocks from earlier runs
+// never interfere with the "current block" assertions.
+
+async function loginCtx(email: string) {
+  const ctx = await apiRequest.newContext();
+  const res = await ctx.post(`${BASE}/api/auth/request-link`, {
+    data: { email },
+  });
+  const body = await res.json();
+  await ctx.get(body.link, { maxRedirects: 0 });
+  return ctx;
+}
+
+test.describe.serial("GET /api/blocks/current", () => {
+  test("returns 401 without a session", async () => {
+    const ctx = await apiRequest.newContext();
+    const res = await ctx.get(`${BASE}/api/blocks/current`);
+    expect(res.status()).toBe(401);
+    await ctx.dispose();
+  });
+
+  test("returns null when nothing is scheduled", async () => {
+    const ctx = await loginCtx(`blocks-empty-${Date.now()}@lyco.test`);
+    const res = await ctx.get(`${BASE}/api/blocks/current`);
+    expect(res.status()).toBe(200);
+    const body = await res.json();
+    expect(body.block).toBeNull();
+    await ctx.dispose();
+  });
+
+  test("returns a block whose window contains now", async () => {
+    const ctx = await loginCtx(`blocks-current-${Date.now()}@lyco.test`);
+    const start = new Date(Date.now() - 10 * 60000).toISOString();
+    const confirm = await ctx.post(`${BASE}/api/schedule/confirm`, {
+      data: {
+        goalTitle: "Test goal",
+        slots: [{ start, durationMinutes: 90, title: "Deep work session" }],
+      },
+    });
+    expect(confirm.status()).toBe(200);
+
+    const res = await ctx.get(`${BASE}/api/blocks/current`);
+    const body = await res.json();
+    expect(body.block.title).toBe("Deep work session");
+    expect(body.block.durationMinutes).toBe(90);
+    await ctx.dispose();
+  });
+
+  test("a future block is not current", async () => {
+    const ctx = await loginCtx(`blocks-future-${Date.now()}@lyco.test`);
+    const tomorrow = new Date(Date.now() + 86400000);
+    tomorrow.setHours(9, 0, 0, 0);
+    const confirm = await ctx.post(`${BASE}/api/schedule/confirm`, {
+      data: {
+        goalTitle: "Test goal",
+        slots: [{ start: tomorrow.toISOString(), durationMinutes: 60, title: "Future block" }],
+      },
+    });
+    expect(confirm.status()).toBe(200);
+
+    const res = await ctx.get(`${BASE}/api/blocks/current`);
+    const body = await res.json();
+    expect(body.block).toBeNull();
+    await ctx.dispose();
+  });
+});
+
+test.describe.serial("PATCH /api/blocks/[id]", () => {
+  test("returns 401 without a session", async () => {
+    const ctx = await apiRequest.newContext();
+    const res = await ctx.patch(`${BASE}/api/blocks/00000000-0000-0000-0000-000000000000`, {
+      data: { title: "x" },
+    });
+    expect(res.status()).toBe(401);
+    await ctx.dispose();
+  });
+
+  test("renames a block and rejects empty titles and foreign ids", async () => {
+    const ctx = await loginCtx(`blocks-patch-${Date.now()}@lyco.test`);
+    const start = new Date(Date.now() - 5 * 60000).toISOString();
+    const confirm = await ctx.post(`${BASE}/api/schedule/confirm`, {
+      data: {
+        goalTitle: "Test goal",
+        slots: [{ start, durationMinutes: 60, title: "Original task" }],
+      },
+    });
+    const { blocks } = await confirm.json();
+    const blockId = blocks[0].id;
+
+    const empty = await ctx.patch(`${BASE}/api/blocks/${blockId}`, { data: { title: "  " } });
+    expect(empty.status()).toBe(400);
+
+    const missing = await ctx.patch(`${BASE}/api/blocks/00000000-0000-0000-0000-000000000000`, {
+      data: { title: "Nope" },
+    });
+    expect(missing.status()).toBe(404);
+
+    const ok = await ctx.patch(`${BASE}/api/blocks/${blockId}`, {
+      data: { title: "Smaller first step" },
+    });
+    expect(ok.status()).toBe(200);
+
+    const res = await ctx.get(`${BASE}/api/blocks/current`);
+    const body = await res.json();
+    expect(body.block.title).toBe("Smaller first step");
+    await ctx.dispose();
+  });
+});
+
+test.describe.serial("POST /api/blocks/[id]/move add_15", () => {
+  test("extends the block instead of moving the start", async () => {
+    const ctx = await loginCtx(`blocks-extend-${Date.now()}@lyco.test`);
+    const start = new Date(Date.now() - 10 * 60000);
+    const confirm = await ctx.post(`${BASE}/api/schedule/confirm`, {
+      data: {
+        goalTitle: "Test goal",
+        slots: [{ start: start.toISOString(), durationMinutes: 60, title: "Extendable" }],
+      },
+    });
+    const { blocks } = await confirm.json();
+    const blockId = blocks[0].id;
+
+    const move = await ctx.post(`${BASE}/api/blocks/${blockId}/move`, {
+      data: { target: "add_15" },
+    });
+    expect(move.status()).toBe(200);
+    const moveBody = await move.json();
+    expect(moveBody.message).toContain("15 minutes added");
+
+    const res = await ctx.get(`${BASE}/api/blocks/current`);
+    const body = await res.json();
+    expect(body.block.durationMinutes).toBe(75);
+    expect(new Date(body.block.scheduledAt).getTime()).toBe(start.getTime());
+    await ctx.dispose();
+  });
+});
+
+// ─── Schedule proposal API ───────────────────────────────────
+
+test.describe.serial("GET /api/schedule/proposal", () => {
+  test.setTimeout(60000);
+
+  test("returns 401 without a session", async () => {
+    const ctx = await apiRequest.newContext();
+    const res = await ctx.get(`${BASE}/api/schedule/proposal`);
+    expect(res.status()).toBe(401);
+    await ctx.dispose();
+  });
+
+  test("returns 404 for a user with no goals", async () => {
+    const ctx = await loginCtx(`proposal-none-${Date.now()}@lyco.test`);
+    const res = await ctx.get(`${BASE}/api/schedule/proposal`);
+    expect(res.status()).toBe(404);
+    await ctx.dispose();
+  });
+
+  test("returns 404 for an unknown goal", async () => {
+    const ctx = await loginCtx("sam@lyco.test");
+    const res = await ctx.get(
+      `${BASE}/api/schedule/proposal?goalId=00000000-0000-0000-0000-000000000000`
+    );
+    expect(res.status()).toBe(404);
+    await ctx.dispose();
+  });
+
+  test("proposes real slots for the seeded goal", async () => {
+    const ctx = await loginCtx("sam@lyco.test");
+    const res = await ctx.get(`${BASE}/api/schedule/proposal?perWeek=2`);
+    expect(res.status()).toBe(200);
+    const body = await res.json();
+
+    expect(body.goal.id).toBeTruthy();
+    expect(typeof body.goal.title).toBe("string");
+    expect(typeof body.reasoning).toBe("string");
+    expect(body.reasoning.length).toBeGreaterThan(0);
+    expect(body.sessions).toMatch(/that is \d+ sessions/);
+    expect(typeof body.calendarConnected).toBe("boolean");
+    expect(body.slots.length).toBe(2);
+
+    for (const slot of body.slots) {
+      expect(typeof slot.day).toBe("string");
+      expect(typeof slot.time).toBe("string");
+      expect(typeof slot.history).toBe("string");
+      expect(slot.durationMinutes).toBe(90);
+      expect(isNaN(new Date(slot.start).getTime())).toBe(false);
+      expect(new Date(slot.start).getTime()).toBeGreaterThan(Date.now());
+    }
+    await ctx.dispose();
+  });
+
+  test("perWeek=1 returns a single slot and a different variant", async () => {
+    const ctx = await loginCtx("sam@lyco.test");
+    const res = await ctx.get(`${BASE}/api/schedule/proposal?perWeek=1&variant=1`);
+    const body = await res.json();
+    expect(body.slots.length).toBe(1);
+    await ctx.dispose();
+  });
+});
+
+test.describe.serial("POST /api/schedule/confirm", () => {
+  test("stores a block for a real goal at a concrete start time", async () => {
+    const ctx = await loginCtx("sam@lyco.test");
+    const prop = await ctx.get(`${BASE}/api/schedule/proposal?perWeek=1`);
+    const { goal, slots } = await prop.json();
+
+    const res = await ctx.post(`${BASE}/api/schedule/confirm`, {
+      data: {
+        goalId: goal.id,
+        goalTitle: goal.title,
+        slots: [
+          { start: slots[0].start, durationMinutes: slots[0].durationMinutes, title: `${goal.title} — work session` },
+        ],
+      },
+    });
+    expect(res.status()).toBe(200);
+    const body = await res.json();
+    expect(body.success).toBe(true);
+    expect(body.blocks.length).toBe(1);
+    expect(body.blocks[0].scheduledAt).toBe(slots[0].start);
+    await ctx.dispose();
+  });
+
+  test("rejects a goal that is not the user's", async () => {
+    const ctx = await loginCtx(`confirm-foreign-${Date.now()}@lyco.test`);
+    const res = await ctx.post(`${BASE}/api/schedule/confirm`, {
+      data: {
+        goalId: "00000000-0000-0000-0000-000000000000",
+        goalTitle: "Nope",
+        slots: [{ start: new Date(Date.now() + 86400000).toISOString(), durationMinutes: 60, title: "x" }],
+      },
+    });
+    expect(res.status()).toBe(404);
+    await ctx.dispose();
+  });
+});
