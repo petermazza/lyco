@@ -1,5 +1,5 @@
 import crypto from "crypto";
-import { pool, query } from "./db";
+import { query } from "./db";
 
 const AUTH_SECRET = process.env.AUTH_SECRET ?? "dev-secret";
 if (!process.env.AUTH_SECRET && process.env.NODE_ENV === "production") {
@@ -132,6 +132,6 @@ export const SESSION_COOKIE_NAME = SESSION_COOKIE;
 export const SESSION_COOKIE_MAX_AGE = SESSION_TTL_DAYS * 24 * 60 * 60;
 
 export async function cleanupExpiredTokens(): Promise<void> {
-  await pool.query(`DELETE FROM magic_link_tokens WHERE expires_at < now()`);
-  await pool.query(`DELETE FROM sessions WHERE expires_at < now()`);
+  await query(`DELETE FROM magic_link_tokens WHERE expires_at < now()`, []);
+  await query(`DELETE FROM sessions WHERE expires_at < now()`, []);
 }

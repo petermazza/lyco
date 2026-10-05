@@ -1,4 +1,4 @@
-import { pool, query } from "../src/lib/db";
+import { query, closeDb } from "../src/lib/db";
 
 export async function seed() {
   // ─── Create test user ──────────────────────────────────────
@@ -194,7 +194,7 @@ export async function seed() {
 if (process.argv[1]?.endsWith("seed.ts")) {
   seed()
     .then(async () => {
-      await pool.end();
+      await closeDb();
     })
     .catch((err) => {
       console.error("Seed failed:", err);

@@ -6,7 +6,7 @@
 //   --json          print the results as one JSON line on stdout
 
 import { runReminderSweep } from "../src/lib/reminders";
-import { pool } from "../src/lib/db";
+import { closeDb } from "../src/lib/db";
 
 async function main() {
   const args = process.argv.slice(2);
@@ -40,7 +40,7 @@ async function main() {
     }
   }
 
-  await pool.end();
+  await closeDb();
 }
 
 main().catch((err) => {

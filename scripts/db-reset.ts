@@ -1,11 +1,11 @@
-import { pool } from "../src/lib/db";
+import { query, closeDb } from "../src/lib/db";
 import { seed } from "./seed";
 
 async function dbReset() {
   console.log("Truncating all application tables...");
 
-  await pool.query(`
-    TRUNCATE TABLE
+  await query(
+    `TRUNCATE TABLE
       spending_entries,
       blocks,
       occasions,
@@ -16,14 +16,15 @@ async function dbReset() {
       sessions,
       magic_link_tokens,
       users
-    CASCADE
-  `);
+    CASCADE`,
+    []
+  );
 
   console.log("All tables truncated.\n");
 
   await seed();
 
-  await pool.end();
+  await closeDb();
   console.log("\ndb:reset complete.");
 }
 

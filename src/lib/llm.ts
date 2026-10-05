@@ -20,9 +20,13 @@ export interface LLMResponse {
 
 // ─── Client ──────────────────────────────────────────────────
 
-const client = new Anthropic({
-  apiKey: process.env.ANTHROPIC_API_KEY,
-});
+// Created lazily so builds don't require ANTHROPIC_API_KEY — it only
+// has to exist when a real call is made.
+let _client: Anthropic | null = null;
+function getClient(): Anthropic {
+  _client ??= new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+  return _client;
+}
 
 const MODEL = "claude-sonnet-5";
 const MAX_TOOL_ROUNDS = 5;
@@ -60,7 +64,7 @@ export async function callLLM(
   let rawResponse: unknown = null;
 
   for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
-    const response = await client.messages.create({
+    const response = await getClient().messages.create({
       model: MODEL,
       max_tokens: 1024,
       system: context ? `${SYSTEM_PROMPT}\n\n${context}` : SYSTEM_PROMPT,
@@ -140,7 +144,7 @@ export async function callLLM(
 // voice. Callers must always have a fallback for when this throws.
 
 export async function generateText(prompt: string): Promise<string> {
-  const response = await client.messages.create({
+  const response = await getClient().messages.create({
     model: MODEL,
     max_tokens: 200,
     system:
