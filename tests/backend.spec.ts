@@ -501,3 +501,202 @@ test.describe.serial("POST /api/schedule/confirm", () => {
     await ctx.dispose();
   });
 });
+
+// ─── Timezone API ────────────────────────────────────────────
+
+test.describe.serial("POST /api/user/timezone", () => {
+  test("returns 401 without a session", async () => {
+    const ctx = await apiRequest.newContext();
+    const res = await ctx.post(`${BASE}/api/user/timezone`, {
+      data: { timezone: "Pacific/Kiritimati" },
+    });
+    expect(res.status()).toBe(401);
+    await ctx.dispose();
+  });
+
+  test("rejects invalid and missing timezones", async () => {
+    const ctx = await loginCtx(`tz-bad-${Date.now()}@lyco.test`);
+    const invalid = await ctx.post(`${BASE}/api/user/timezone`, {
+      data: { timezone: "Mars/Olympus_Mons" },
+    });
+    expect(invalid.status()).toBe(400);
+    const missing = await ctx.post(`${BASE}/api/user/timezone`, { data: {} });
+    expect(missing.status()).toBe(400);
+    await ctx.dispose();
+  });
+
+  test("stores a valid timezone and uses it for block times", async () => {
+    const ctx = await loginCtx(`tz-${Date.now()}@lyco.test`);
+    // UTC+14 — always several hours ahead of wherever the server runs
+    const set = await ctx.post(`${BASE}/api/user/timezone`, {
+      data: { timezone: "Pacific/Kiritimati" },
+    });
+    expect(set.status()).toBe(200);
+
+    // A block that started an hour ago; add_15 ends it 15 min from now
+    const start = new Date(Date.now() - 60 * 60000);
+    const confirm = await ctx.post(`${BASE}/api/schedule/confirm`, {
+      data: {
+        goalTitle: "Timed",
+        slots: [{ start: start.toISOString(), durationMinutes: 60, title: "Timed block" }],
+      },
+    });
+    const { blocks } = await confirm.json();
+    const move = await ctx.post(`${BASE}/api/blocks/${blocks[0].id}/move`, {
+      data: { target: "add_15" },
+    });
+    expect(move.status()).toBe(200);
+    const body = await move.json();
+
+    // The message should give the end time in Kiritimati. Allow ±2 min
+    // of clock drift between the test and the server.
+    const fmt = new Intl.DateTimeFormat("en-US", {
+      timeZone: "Pacific/Kiritimati",
+      hour: "numeric",
+      minute: "2-digit",
+      hour12: true,
+    });
+    const squash = (s: string) => s.toLowerCase().replace(/[  ]/g, "").replace(/\s/g, "");
+    const endMs = start.getTime() + 75 * 60000;
+    const candidates = [-2, -1, 0, 1, 2].map((m) => squash(fmt.format(new Date(endMs + m * 60000))));
+    expect(candidates.some((c) => squash(body.message).includes(c))).toBe(true);
+    await ctx.dispose();
+  });
+});
+
+// ─── Missed blocks ───────────────────────────────────────────
+
+test.describe.serial("missed blocks", () => {
+  test("a block that ended untouched appears as still open and can be dropped", async () => {
+    const ctx = await loginCtx(`missed-${Date.now()}@lyco.test`);
+    const title = `Forgotten-${Date.now()}`;
+    // Ended an hour ago — past the 30-minute grace period
+    const start = new Date(Date.now() - 120 * 60000);
+    const confirm = await ctx.post(`${BASE}/api/schedule/confirm`, {
+      data: {
+        goalTitle: "Cleanup",
+        slots: [{ start: start.toISOString(), durationMinutes: 60, title }],
+      },
+    });
+    expect(confirm.status()).toBe(200);
+
+    const home = await ctx.get(`${BASE}/api/home`);
+    const body = await home.json();
+    const missed = (body.earlier as { id: string; title: string }[]).find((b) => b.title === title);
+    expect(missed).toBeTruthy();
+
+    const drop = await ctx.post(`${BASE}/api/blocks/${missed!.id}/move`, {
+      data: { target: "drop" },
+    });
+    expect(drop.status()).toBe(200);
+
+    const home2 = await ctx.get(`${BASE}/api/home`);
+    const body2 = await home2.json();
+    expect((body2.earlier as { id: string }[]).some((b) => b.id === missed!.id)).toBe(false);
+    // The block still counts in this month's total
+    expect(body2.total).toBeGreaterThanOrEqual(1);
+    await ctx.dispose();
+  });
+
+  test("a missed block can be marked done late", async () => {
+    const ctx = await loginCtx(`missed-done-${Date.now()}@lyco.test`);
+    const title = `Late-${Date.now()}`;
+    const start = new Date(Date.now() - 120 * 60000);
+    await ctx.post(`${BASE}/api/schedule/confirm`, {
+      data: {
+        goalTitle: "Cleanup",
+        slots: [{ start: start.toISOString(), durationMinutes: 60, title }],
+      },
+    });
+
+    const home = await ctx.get(`${BASE}/api/home`);
+    const body = await home.json();
+    const missed = (body.earlier as { id: string; title: string }[]).find((b) => b.title === title);
+    expect(missed).toBeTruthy();
+
+    const done = await ctx.post(`${BASE}/api/blocks/${missed!.id}/done`, { data: {} });
+    expect(done.status()).toBe(200);
+
+    const home2 = await ctx.get(`${BASE}/api/home`);
+    const body2 = await home2.json();
+    expect((body2.earlier as { id: string }[]).some((b) => b.id === missed!.id)).toBe(false);
+    expect(body2.kept).toBeGreaterThanOrEqual(1);
+    await ctx.dispose();
+  });
+
+  test("a block still in progress is not marked missed", async () => {
+    const ctx = await loginCtx(`missed-live-${Date.now()}@lyco.test`);
+    const start = new Date(Date.now() - 10 * 60000);
+    await ctx.post(`${BASE}/api/schedule/confirm`, {
+      data: {
+        goalTitle: "Live",
+        slots: [{ start: start.toISOString(), durationMinutes: 60, title: "In progress" }],
+      },
+    });
+
+    const home = await ctx.get(`${BASE}/api/home`);
+    const body = await home.json();
+    expect((body.earlier as { title: string }[]).some((b) => b.title === "In progress")).toBe(false);
+    expect(body.currentBlock?.title).toBe("In progress");
+    await ctx.dispose();
+  });
+});
+
+// ─── Chat: spending + occasions ──────────────────────────────
+// These run the real model; prompts are explicit so the right
+// tool is reliably chosen.
+
+test.describe.serial("chat: spending and dates", () => {
+  test.setTimeout(90000);
+
+  test("logging a purchase through chat updates the spending bar", async () => {
+    const ctx = await loginCtx("sam@lyco.test");
+    const before = await (await ctx.get(`${BASE}/api/home`)).json();
+    const eating = (before.spending as { label: string; figure: string }[]).find((s) => s.label === "Eating out");
+    expect(eating).toBeTruthy();
+    const spent = (f: { figure: string }) => parseInt(f.figure.match(/\$(\d+) of/)![1], 10);
+
+    const chat = await ctx.post(`${BASE}/api/chat`, {
+      data: {
+        messages: [
+          { role: "user", content: "log a $9 purchase on eating out, it was coffee" },
+        ],
+      },
+    });
+    expect(chat.status()).toBe(200);
+    const body = await chat.json();
+    const logged = (body.toolResults as { tool: string; success: boolean }[]).find(
+      (r) => r.tool === "log_spending" && r.success
+    );
+    expect(logged).toBeTruthy();
+
+    const after = await (await ctx.get(`${BASE}/api/home`)).json();
+    const eatingAfter = (after.spending as { label: string; figure: string }[]).find((s) => s.label === "Eating out");
+    expect(spent(eatingAfter!)).toBe(spent(eating!) + 9);
+    await ctx.dispose();
+  });
+
+  test("adding an occasion through chat shows it under coming up", async () => {
+    const ctx = await loginCtx(`occasion-${Date.now()}@lyco.test`);
+    const future = new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10);
+    const title = `Trip-${Date.now()}`;
+
+    const chat = await ctx.post(`${BASE}/api/chat`, {
+      data: {
+        messages: [
+          { role: "user", content: `remember "${title}" on ${future} — it's a trip` },
+        ],
+      },
+    });
+    expect(chat.status()).toBe(200);
+    const body = await chat.json();
+    const added = (body.toolResults as { tool: string; success: boolean }[]).find(
+      (r) => r.tool === "add_occasion" && r.success
+    );
+    expect(added).toBeTruthy();
+
+    const home = await (await ctx.get(`${BASE}/api/home`)).json();
+    expect((home.upcoming as { title: string }[]).some((o) => o.title === title)).toBe(true);
+    await ctx.dispose();
+  });
+});

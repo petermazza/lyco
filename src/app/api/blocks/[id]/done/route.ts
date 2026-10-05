@@ -15,7 +15,7 @@ export async function POST(
 
   // Mark the block as done — scoped to user_id
   const rows = await query<{ id: string }>(
-    `UPDATE blocks SET status = 'done' WHERE id = $1 AND user_id = $2 AND status IN ('scheduled', 'running') RETURNING id`,
+    `UPDATE blocks SET status = 'done' WHERE id = $1 AND user_id = $2 AND status IN ('scheduled', 'running', 'missed') RETURNING id`,
     [id, user.userId]
   );
 

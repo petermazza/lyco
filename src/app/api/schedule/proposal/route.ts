@@ -4,6 +4,7 @@ import { query } from "@/lib/db";
 import { isCalendarConnected, getProvider } from "@/lib/calendar/google";
 import { calendarRedirectUri } from "@/lib/app-url";
 import { generateText } from "@/lib/llm";
+import { resolveTimezone, zonedParts, zonedToUTC, formatTimeTz, todayBounds } from "@/lib/tz";
 
 // ─── Candidate windows ───────────────────────────────────────
 // Recurring weekly slots to consider: weekday evenings, weekend
@@ -26,35 +27,42 @@ function overlaps(start: Date, end: Date, busy: BusyInterval[]): boolean {
   return busy.some((b) => start < b.end && end > b.start);
 }
 
-function occurrencesOf(weekday: number, hour: number, minute: number, from: Date, count: number, backwards: boolean): { start: Date; end: Date }[] {
+// All wall-clock math happens in the user's timezone.
+function occurrencesOf(
+  tz: string,
+  weekday: number,
+  hour: number,
+  minute: number,
+  from: Date,
+  count: number,
+  backwards: boolean
+): { start: Date; end: Date }[] {
   const out: { start: Date; end: Date }[] = [];
-  const cursor = new Date(from);
-  cursor.setHours(hour, minute, 0, 0);
+  const p = zonedParts(tz, from);
 
-  // Move to the nearest matching weekday
-  while (cursor.getDay() !== weekday) {
-    cursor.setDate(cursor.getDate() + (backwards ? -1 : 1));
+  // Current calendar date in tz, as a UTC-midnight marker we can step by days
+  let d = new Date(Date.UTC(p.year, p.month - 1, p.day));
+  const weekdayOf = (marker: Date) =>
+    zonedParts(tz, zonedToUTC(tz, marker.getUTCFullYear(), marker.getUTCMonth() + 1, marker.getUTCDate(), 12, 0)).weekday;
+  const at = (marker: Date) =>
+    zonedToUTC(tz, marker.getUTCFullYear(), marker.getUTCMonth() + 1, marker.getUTCDate(), hour, minute);
+
+  // Align to the target weekday
+  while (weekdayOf(d) !== weekday) {
+    d = new Date(d.getTime() + (backwards ? -1 : 1) * 86400000);
   }
-  if (backwards ? cursor >= from : cursor <= from) {
-    cursor.setDate(cursor.getDate() + (backwards ? -7 : 7));
+  // If that occurrence isn't strictly in the right direction, shift a week
+  const first = at(d);
+  if (backwards ? first >= from : first <= from) {
+    d = new Date(d.getTime() + (backwards ? -7 : 7) * 86400000);
   }
 
   for (let i = 0; i < count; i++) {
-    out.push({
-      start: new Date(cursor),
-      end: new Date(cursor.getTime() + BLOCK_MINUTES * 60000),
-    });
-    cursor.setDate(cursor.getDate() + (backwards ? -7 : 7));
+    const start = at(d);
+    out.push({ start, end: new Date(start.getTime() + BLOCK_MINUTES * 60000) });
+    d = new Date(d.getTime() + (backwards ? -7 : 7) * 86400000);
   }
   return out;
-}
-
-function formatTime(date: Date): string {
-  let h = date.getHours();
-  const m = date.getMinutes();
-  const ampm = h >= 12 ? "pm" : "am";
-  h = h % 12 || 12;
-  return `${h}:${m.toString().padStart(2, "0")} ${ampm}`;
 }
 
 function timeOfDay(hour: number): string {
@@ -103,6 +111,7 @@ export async function GET(req: NextRequest) {
   }
 
   const now = new Date();
+  const tz = resolveTimezone(user.timezone);
   const perWeek = perWeekParam >= 1 && perWeekParam <= 5 ? perWeekParam : cadenceToPerWeek(goal.cadence);
 
   // ─── Busy intervals: Google free/busy + this app's blocks ──
@@ -149,8 +158,8 @@ export async function GET(req: NextRequest) {
   for (let weekday = 0; weekday < 7; weekday++) {
     const windows = weekday === 0 || weekday === 6 ? WEEKEND_WINDOWS : WEEKDAY_WINDOWS;
     for (const [hour, minute] of windows) {
-      const past = occurrencesOf(weekday, hour, minute, now, HISTORY_OCCURRENCES, true);
-      const future = occurrencesOf(weekday, hour, minute, now, FUTURE_WEEKS, false);
+      const past = occurrencesOf(tz, weekday, hour, minute, now, HISTORY_OCCURRENCES, true);
+      const future = occurrencesOf(tz, weekday, hour, minute, now, FUTURE_WEEKS, false);
       const histFree = past.filter((o) => !overlaps(o.start, o.end, busy)).length;
       const futureFree = future.filter((o) => !overlaps(o.start, o.end, busy)).length;
       candidates.push({ weekday, hour, minute, histFree, histTotal: past.length, futureFree });
@@ -178,7 +187,7 @@ export async function GET(req: NextRequest) {
 
   // ─── Shape the slots ───────────────────────────────────────
   const slots = chosen.map((c) => {
-    const next = occurrencesOf(c.weekday, c.hour, c.minute, now, 1, false)[0];
+    const next = occurrencesOf(tz, c.weekday, c.hour, c.minute, now, 1, false)[0];
     const end = new Date(next.start.getTime() + BLOCK_MINUTES * 60000);
     const tod = timeOfDay(c.hour);
     const history = calendarConnected
@@ -191,7 +200,7 @@ export async function GET(req: NextRequest) {
       weekday: c.weekday,
       day: DAY_NAMES[c.weekday],
       start: next.start.toISOString(),
-      time: `${formatTime(next.start)} – ${formatTime(end)}`,
+      time: `${formatTimeTz(tz, next.start)} – ${formatTimeTz(tz, end)}`,
       durationMinutes: BLOCK_MINUTES,
       history,
     };
@@ -208,9 +217,17 @@ export async function GET(req: NextRequest) {
   let deadlineLabel: string | null = null;
   let deadlineISO: string | null = null;
   if (deadlineDate) {
-    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    weeksLeft = Math.max(0, Math.ceil((deadlineDate.getTime() - today.getTime()) / (7 * 86400000)));
-    deadlineLabel = deadlineDate.toLocaleDateString("en-US", { day: "numeric", month: "long" });
+    // Re-anchor the calendar date at midnight in the user's zone
+    const deadlineMidnight = zonedToUTC(
+      tz,
+      deadlineDate.getFullYear(),
+      deadlineDate.getMonth() + 1,
+      deadlineDate.getDate(),
+      0, 0
+    );
+    const today = todayBounds(tz, now).start;
+    weeksLeft = Math.max(0, Math.ceil((deadlineMidnight.getTime() - today.getTime()) / (7 * 86400000)));
+    deadlineLabel = deadlineDate.toLocaleDateString("en-US", { day: "numeric", month: "long", timeZone: tz });
     deadlineISO = `${deadlineDate.getFullYear()}-${String(deadlineDate.getMonth() + 1).padStart(2, "0")}-${String(deadlineDate.getDate()).padStart(2, "0")}`;
   }
 

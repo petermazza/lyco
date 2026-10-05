@@ -276,8 +276,8 @@ test.describe.serial("Block screen", () => {
 test.describe.serial("New project screen", () => {
   test("shows initial bot message and text input", async ({ page }) => {
     await gotoFreshUser(page, "/new");
-    await expect(page.getByText("New project")).toBeVisible();
-    await expect(page.getByText("What are you working on?")).toBeVisible();
+    await expect(page.getByText("New", { exact: true })).toBeVisible();
+    await expect(page.getByText("What's on your mind?")).toBeVisible();
     await expect(page.getByRole("button", { name: "send" })).toBeVisible();
   });
 
@@ -305,6 +305,7 @@ test.describe.serial("New project screen", () => {
   });
 
   test("creating a goal offers a find time for this link", async ({ page }) => {
+    test.setTimeout(90000); // live model may ask a follow-up or two
     await gotoFreshUser(page, "/new");
     const input = page.locator("input").last();
     await input.fill("I want to learn piano, twice a week, by spring");
@@ -381,7 +382,7 @@ test.describe.serial("Schedule proposal screen", () => {
     // A brand-new user has no goals — proposal 404s and the screen redirects
     await gotoFreshUser(page, "/schedule");
     await expect(page).toHaveURL(/\/new/, { timeout: 15000 });
-    await expect(page.getByText("What are you working on?")).toBeVisible();
+    await expect(page.getByText("What's on your mind?")).toBeVisible();
   });
 });
 
@@ -518,5 +519,47 @@ test.describe.serial("Sentence casing", () => {
     for (const noun of LOWER_PROPER_NOUNS) {
       expect(text, `expected no lowercase "${noun}"`).not.toContain(noun);
     }
+  });
+});
+
+// ─── Still open from earlier ─────────────────────────────────
+// A block that ends untouched becomes "missed" and shows up as a
+// quiet row the user can act on.
+
+test.describe.serial("Still open from earlier", () => {
+  test("shows a missed block and drop removes it", async ({ page }) => {
+    // Sign in as sam in the browser
+    const ctx = await apiRequest.newContext();
+    const res = await ctx.post(`${BASE}/api/auth/request-link`, {
+      data: { email: "sam@lyco.test" },
+    });
+    const body = await res.json();
+    await ctx.dispose();
+    await page.goto(body.link);
+    await page.waitForLoadState("networkidle");
+
+    // Plant a block that ended an hour ago — past the grace period
+    const title = `Missed-${Date.now()}`;
+    const start = new Date(Date.now() - 120 * 60000).toISOString();
+    const conf = await page.request.post(`${BASE}/api/schedule/confirm`, {
+      data: {
+        goalTitle: "Cleanup",
+        slots: [{ start, durationMinutes: 60, title }],
+      },
+    });
+    expect(conf.ok()).toBeTruthy();
+
+    await page.goto("/");
+    await page.waitForLoadState("networkidle");
+
+    await expect(page.getByText("Still open from earlier")).toBeVisible();
+    const row = page
+      .locator("div", { has: page.getByText(title, { exact: true }) })
+      .filter({ has: page.getByRole("button", { name: "drop" }) })
+      .last();
+    await expect(row).toBeVisible();
+    await row.getByRole("button", { name: "drop" }).click();
+    await expect(page.getByText("dropped. no explanation needed.")).toBeVisible();
+    await expect(page.getByText(title)).not.toBeVisible();
   });
 });

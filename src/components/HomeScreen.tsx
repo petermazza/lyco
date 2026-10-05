@@ -21,6 +21,7 @@ interface HomeData {
     left: string;
   } | null;
   laterToday: { time: string; title: string; len: string }[];
+  earlier: { id: string; title: string; time: string }[];
   spending: {
     label: string;
     figure: string;
@@ -102,6 +103,16 @@ export function HomeScreen() {
   }, []);
 
   useEffect(() => {
+    // Report this device's timezone so "today" and "tomorrow morning"
+    // are computed in the user's local clock, not the server's.
+    const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    if (tz) {
+      fetch("/api/user/timezone", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ timezone: tz }),
+      }).catch(() => {});
+    }
     fetchData();
   }, [fetchData]);
 
@@ -140,6 +151,28 @@ export function HomeScreen() {
       showToast("something went wrong. try again.");
     }
   }, [data, showToast, fetchData]);
+
+  const handleEarlier = useCallback(async (blockId: string, action: "done" | "tomorrow" | "drop") => {
+    const toastMsg =
+      action === "done" ? "kept."
+      : action === "tomorrow" ? "moved to tomorrow morning."
+      : "dropped. no explanation needed.";
+    setData((d) => d ? { ...d, earlier: d.earlier.filter((b) => b.id !== blockId) } : d);
+    showToast(toastMsg);
+    try {
+      const res = action === "done"
+        ? await fetch(`/api/blocks/${blockId}/done`, { method: "POST" })
+        : await fetch(`/api/blocks/${blockId}/move`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ target: action === "tomorrow" ? "tomorrow_morning" : "drop" }),
+          });
+      if (!res.ok) showToast("something went wrong. try again.");
+      fetchData();
+    } catch {
+      showToast("something went wrong. try again.");
+    }
+  }, [showToast, fetchData]);
 
   const handleSignIn = useCallback(async (email: string) => {
     try {
@@ -218,7 +251,7 @@ export function HomeScreen() {
 
   const sections: SectionVisibility = d
     ? deriveSections(d)
-    : { firstRun: false, rightNow: false, laterToday: false, spending: false, comingUp: false };
+    : { firstRun: false, rightNow: false, laterToday: false, stillOpen: false, spending: false, comingUp: false };
 
   const dots: { color: string }[] = [];
   const kept = d?.kept ?? 0;
@@ -432,6 +465,46 @@ export function HomeScreen() {
               nothing else today.
             </div>
           )}
+        </section>
+        )}
+
+        {/* ─── Still open from earlier ─────────────────────────── */}
+        {!isLoading && sections.stillOpen && d && (
+        <section>
+          <h6 style={{ margin: "0 0 var(--space-4)", color: "color-mix(in srgb, var(--color-text) 45%, transparent)" }}>Still open from earlier</h6>
+          <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-3)" }}>
+            {d.earlier.map((b) => (
+              <div
+                key={b.id}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 12,
+                  padding: "10px 0",
+                  background:
+                    "linear-gradient(to right, transparent, color-mix(in srgb, var(--color-text) 8%, transparent) 24px, color-mix(in srgb, var(--color-text) 8%, transparent) calc(100% - 24px), transparent) no-repeat bottom / 100% 1px",
+                }}
+              >
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: "var(--app-size-body)", lineHeight: 1.3, textWrap: "pretty" }}>{b.title}</div>
+                  <div style={{ fontSize: "var(--app-size-micro)", color: "var(--app-text-quiet)", marginTop: 3 }}>
+                    was {b.time}
+                  </div>
+                </div>
+                <div style={{ display: "flex", gap: "var(--space-1)", flex: "none" }}>
+                  <button className="btn btn-ghost" style={{ fontSize: 13, minHeight: 44 }} onClick={() => handleEarlier(b.id, "done")}>
+                    done
+                  </button>
+                  <button className="btn btn-ghost" style={{ fontSize: 13, minHeight: 44 }} onClick={() => handleEarlier(b.id, "tomorrow")}>
+                    tomorrow
+                  </button>
+                  <button className="btn btn-ghost" style={{ fontSize: 13, minHeight: 44 }} onClick={() => handleEarlier(b.id, "drop")}>
+                    drop
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
         </section>
         )}
 

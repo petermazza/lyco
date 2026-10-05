@@ -8,8 +8,11 @@ CREATE TABLE IF NOT EXISTS users (
   id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   email       TEXT NOT NULL UNIQUE,
   name        TEXT,
+  timezone    TEXT,
   created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+ALTER TABLE users ADD COLUMN IF NOT EXISTS timezone TEXT;
 
 -- ─── Magic link tokens ──────────────────────────────────────
 CREATE TABLE IF NOT EXISTS magic_link_tokens (

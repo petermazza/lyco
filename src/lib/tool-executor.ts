@@ -1,4 +1,5 @@
 import { query } from "./db";
+import { resolveTimezone, nextLocalTime, tomorrowLocalTime } from "./tz";
 import type { ToolCall } from "./tools";
 import { validateToolCall } from "./tools";
 
@@ -77,6 +78,12 @@ async function executeOne(call: ToolCall, userId: string): Promise<ToolResult> {
       return moveBlock(call.arguments, userId);
     case "update_block":
       return updateBlock(call.arguments, userId);
+    case "create_spending_goal":
+      return createSpendingGoal(call.arguments, userId);
+    case "log_spending":
+      return logSpending(call.arguments, userId);
+    case "add_occasion":
+      return addOccasion(call.arguments, userId);
     default:
       return {
         tool: call.name,
@@ -233,7 +240,7 @@ async function completeBlock(
   const rows = await query<{ id: string }>(
     `UPDATE blocks
      SET status = 'done', progress = 100
-     WHERE id = $1 AND user_id = $2 AND status IN ('scheduled', 'running')
+     WHERE id = $1 AND user_id = $2 AND status IN ('scheduled', 'running', 'missed')
      RETURNING id`,
     [blockId, userId]
   );
@@ -271,10 +278,16 @@ async function moveBlock(
   const blockId = args.block_id as string;
   const target = args.target as string;
 
+  const tzRows = await query<{ timezone: string | null }>(
+    `SELECT timezone FROM users WHERE id = $1`,
+    [userId]
+  );
+  const tz = resolveTimezone(tzRows[0]?.timezone);
+
   if (target === "drop") {
     const rows = await query<{ id: string }>(
       `UPDATE blocks SET status = 'dropped'
-       WHERE id = $1 AND user_id = $2 AND status IN ('scheduled', 'running')
+       WHERE id = $1 AND user_id = $2 AND status IN ('scheduled', 'running', 'missed')
        RETURNING id`,
       [blockId, userId]
     );
@@ -349,12 +362,9 @@ async function moveBlock(
   let newStart: Date;
 
   if (target === "later_today") {
-    newStart = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 18, 45, 0);
-    if (newStart <= now) {
-      newStart.setDate(newStart.getDate() + 1);
-    }
+    newStart = nextLocalTime(tz, now, 18, 45);
   } else if (target === "tomorrow_morning") {
-    newStart = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, 9, 0, 0);
+    newStart = tomorrowLocalTime(tz, now, 9, 0);
   } else {
     return {
       tool: "move_block",
@@ -421,6 +431,144 @@ async function updateBlock(
         operation: "update" as const,
         row_id: blockId,
         changes: { title },
+      },
+    },
+  };
+}
+
+// ─── create_spending_goal ────────────────────────────────────
+
+async function createSpendingGoal(
+  args: Record<string, unknown>,
+  userId: string
+): Promise<ToolResult> {
+  const label = (args.label as string).trim();
+  const monthlyAmount = args.monthly_amount as number;
+
+  // A matching target counts as already existing — the home screen
+  // keys on labels, so duplicates would render twice.
+  const existing = await query<{ id: string }>(
+    `SELECT id FROM spending_goals WHERE user_id = $1 AND LOWER(label) = LOWER($2)`,
+    [userId, label]
+  );
+  if (existing[0]) {
+    return {
+      tool: "create_spending_goal",
+      success: true,
+      message: `A spending target called "${label}" already exists.`,
+      data: { spending_goal_id: existing[0].id },
+    };
+  }
+
+  const budgetCents = Math.round(monthlyAmount * 100);
+  const rows = await query<{ id: string }>(
+    `INSERT INTO spending_goals (user_id, label, budget_cents)
+     VALUES ($1, $2, $3)
+     RETURNING id`,
+    [userId, label, budgetCents]
+  );
+
+  const goalId = rows[0].id;
+  return {
+    tool: "create_spending_goal",
+    success: true,
+    message: `Spending target "${label}" created at $${monthlyAmount} a month.`,
+    data: {
+      spending_goal_id: goalId,
+      rowChange: {
+        table: "spending_goals",
+        operation: "insert" as const,
+        row_id: goalId,
+        changes: { label, monthly_amount: monthlyAmount },
+      },
+    },
+  };
+}
+
+// ─── log_spending ────────────────────────────────────────────
+
+async function logSpending(
+  args: Record<string, unknown>,
+  userId: string
+): Promise<ToolResult> {
+  const label = (args.spending_goal_label as string).trim();
+  const amount = args.amount as number;
+  const description = args.description as string | undefined;
+  const date = args.date as string | undefined;
+
+  // Resolve the target by name so the user never has to know an id.
+  const goals = await query<{ id: string; label: string }>(
+    `SELECT id, label FROM spending_goals WHERE user_id = $1 AND LOWER(label) = LOWER($2)`,
+    [userId, label]
+  );
+
+  if (!goals[0]) {
+    const all = await query<{ label: string }>(
+      `SELECT label FROM spending_goals WHERE user_id = $1`,
+      [userId]
+    );
+    const available = all.map((g) => `"${g.label}"`).join(", ") || "none";
+    return {
+      tool: "log_spending",
+      success: false,
+      message: `No spending target called "${label}" exists. The user has: ${available}. Ask which target to use, or create one with create_spending_goal.`,
+    };
+  }
+
+  const amountCents = Math.round(amount * 100);
+  const rows = await query<{ id: string }>(
+    `INSERT INTO spending_entries (user_id, spending_goal_id, amount_cents, description, spent_at)
+     VALUES ($1, $2, $3, $4, $5)
+     RETURNING id`,
+    [userId, goals[0].id, amountCents, description ?? null, date ?? new Date().toISOString().slice(0, 10)]
+  );
+
+  const entryId = rows[0].id;
+  return {
+    tool: "log_spending",
+    success: true,
+    message: `$${amount} logged against "${goals[0].label}".`,
+    data: {
+      spending_entry_id: entryId,
+      rowChange: {
+        table: "spending_entries",
+        operation: "insert" as const,
+        row_id: entryId,
+        changes: { spending_goal_id: goals[0].id, amount, description, spent_at: date },
+      },
+    },
+  };
+}
+
+// ─── add_occasion ────────────────────────────────────────────
+
+async function addOccasion(
+  args: Record<string, unknown>,
+  userId: string
+): Promise<ToolResult> {
+  const title = (args.title as string).trim();
+  const date = args.date as string;
+  const note = args.note as string | undefined;
+
+  const rows = await query<{ id: string }>(
+    `INSERT INTO occasions (user_id, title, date, note)
+     VALUES ($1, $2, $3, $4)
+     RETURNING id`,
+    [userId, title, date, note ?? null]
+  );
+
+  const occasionId = rows[0].id;
+  return {
+    tool: "add_occasion",
+    success: true,
+    message: `"${title}" added for ${date}.`,
+    data: {
+      occasion_id: occasionId,
+      rowChange: {
+        table: "occasions",
+        operation: "insert" as const,
+        row_id: occasionId,
+        changes: { title, date, note },
       },
     },
   };

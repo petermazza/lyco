@@ -10,7 +10,10 @@ export type ToolName =
   | "schedule_block"
   | "complete_block"
   | "move_block"
-  | "update_block";
+  | "update_block"
+  | "create_spending_goal"
+  | "log_spending"
+  | "add_occasion";
 
 export interface ToolDefinition {
   name: ToolName;
@@ -173,6 +176,81 @@ export const toolDefinitions: ToolDefinition[] = [
       required: ["block_id", "title"],
     },
   },
+  {
+    name: "create_spending_goal",
+    description:
+      "Create a monthly spending target the user wants to keep an eye on, " +
+      "like 'eating out' or 'clothes'. Use this when the user names a category and a monthly limit.",
+    input_schema: {
+      type: "object",
+      properties: {
+        label: {
+          type: "string",
+          description: "A short category name in plain words. e.g. 'eating out', 'groceries'.",
+        },
+        monthly_amount: {
+          type: "number",
+          description: "The monthly limit in whole currency units. e.g. 240 for $240.",
+          minimum: 1,
+        },
+      },
+      required: ["label", "monthly_amount"],
+    },
+  },
+  {
+    name: "log_spending",
+    description:
+      "Record a purchase against one of the user's spending targets. " +
+      "Use this when the user says they bought something. The spending_goal_label should match an existing target; " +
+      "if the user has no matching target, ask which one to use or create it with create_spending_goal first.",
+    input_schema: {
+      type: "object",
+      properties: {
+        spending_goal_label: {
+          type: "string",
+          description: "The name of the spending target this purchase belongs to, e.g. 'eating out'. Case-insensitive.",
+        },
+        amount: {
+          type: "number",
+          description: "The purchase amount in currency units. e.g. 12.50 for $12.50.",
+          minimum: 0.01,
+        },
+        description: {
+          type: "string",
+          description: "A short note about the purchase. e.g. 'lunch with Sam'.",
+        },
+        date: {
+          type: "string",
+          description: "When the purchase happened, as YYYY-MM-DD. Defaults to today.",
+        },
+      },
+      required: ["spending_goal_label", "amount"],
+    },
+  },
+  {
+    name: "add_occasion",
+    description:
+      "Add an upcoming date the user wants to be reminded of, like a birthday or trip. " +
+      "It shows up in the 'coming up' section of their home screen.",
+    input_schema: {
+      type: "object",
+      properties: {
+        title: {
+          type: "string",
+          description: "What the date is for. e.g. \"Mum's birthday\", 'Anniversary trip'.",
+        },
+        date: {
+          type: "string",
+          description: "The date as YYYY-MM-DD.",
+        },
+        note: {
+          type: "string",
+          description: "An optional extra note shown under the title.",
+        },
+      },
+      required: ["title", "date"],
+    },
+  },
 ];
 
 // ─── Validation ──────────────────────────────────────────────
@@ -273,6 +351,42 @@ export function validateToolCall(call: ToolCall): ValidationResult {
       }
       if (typeof args.title !== "string" || args.title.trim().length === 0) {
         errors.push("title is required and must be a non-empty string");
+      }
+      break;
+    }
+    case "create_spending_goal": {
+      if (typeof args.label !== "string" || args.label.trim().length === 0) {
+        errors.push("label is required and must be a non-empty string");
+      }
+      if (typeof args.monthly_amount !== "number" || args.monthly_amount <= 0) {
+        errors.push("monthly_amount is required and must be a positive number");
+      }
+      break;
+    }
+    case "log_spending": {
+      if (typeof args.spending_goal_label !== "string" || args.spending_goal_label.trim().length === 0) {
+        errors.push("spending_goal_label is required and must be a non-empty string");
+      }
+      if (typeof args.amount !== "number" || args.amount <= 0) {
+        errors.push("amount is required and must be a positive number");
+      }
+      if (args.description !== undefined && typeof args.description !== "string") {
+        errors.push("description must be a string");
+      }
+      if (args.date !== undefined && !isISODate(args.date)) {
+        errors.push("date must be an ISO date string (YYYY-MM-DD)");
+      }
+      break;
+    }
+    case "add_occasion": {
+      if (typeof args.title !== "string" || args.title.trim().length === 0) {
+        errors.push("title is required and must be a non-empty string");
+      }
+      if (!isISODate(args.date)) {
+        errors.push("date is required and must be an ISO date string (YYYY-MM-DD)");
+      }
+      if (args.note !== undefined && typeof args.note !== "string") {
+        errors.push("note must be a string");
       }
       break;
     }

@@ -3,6 +3,7 @@ import { getCurrentUser } from "@/lib/session";
 import { query } from "@/lib/db";
 import { isCalendarConnected, getProvider } from "@/lib/calendar/google";
 import { calendarRedirectUri } from "@/lib/app-url";
+import { resolveTimezone, nextWeekdayTime } from "@/lib/tz";
 
 interface SlotInput {
   // Preferred: concrete ISO 8601 start. Legacy fallback: "Tuesday" + "7:00 – 8:30 pm".
@@ -20,8 +21,9 @@ interface ConfirmBody {
 }
 
 // Parse a slot like { day: "Tuesday", time: "7:00 – 8:30 pm" } into
-// concrete start/end datetimes for the next occurrence of that weekday.
-function parseSlotToDates(slot: SlotInput, now: Date): { start: Date; end: Date } | null {
+// concrete start/end datetimes for the next occurrence of that weekday
+// in the user's timezone.
+function parseSlotToDates(tz: string, slot: SlotInput, now: Date): { start: Date; end: Date } | null {
   if (slot.start) {
     const start = new Date(slot.start);
     if (isNaN(start.getTime())) return null;
@@ -54,24 +56,15 @@ function parseSlotToDates(slot: SlotInput, now: Date): { start: Date; end: Date 
   if (isPM && endHour !== 12) endHour += 12;
   if (!isPM && endHour === 12) endHour = 0;
 
-  // Find next occurrence of the target weekday
-  const result = new Date(now);
-  const currentDay = result.getDay();
-  let daysUntil = targetDay - currentDay;
-  if (daysUntil < 0) daysUntil += 7;
-  if (daysUntil === 0) {
-    // Today — check if the time hasn't passed yet
-    const todayStart = new Date(result);
-    todayStart.setHours(startHour, startMin, 0, 0);
-    if (todayStart <= now) daysUntil = 7;
+  // Find next occurrence of the target weekday + wall-clock time in the user's zone
+  const start = nextWeekdayTime(tz, now, targetDay, startHour, startMin);
+  const end = new Date(nextWeekdayTime(tz, now, targetDay, endHour, endMin).getTime());
+  // If the end isn't after the start (e.g. range crosses midnight), fall back to duration
+  if (end <= start) {
+    end.setTime(start.getTime() + (slot.durationMinutes ?? 90) * 60000);
   }
-  result.setDate(result.getDate() + daysUntil);
-  result.setHours(startHour, startMin, 0, 0);
 
-  const end = new Date(result);
-  end.setHours(endHour, endMin, 0, 0);
-
-  return { start: result, end };
+  return { start, end };
 }
 
 export async function POST(req: NextRequest) {
@@ -97,6 +90,7 @@ export async function POST(req: NextRequest) {
   }
 
   const now = new Date();
+  const tz = resolveTimezone(user.timezone);
   const calendarConnected = await isCalendarConnected(user.userId);
   const provider = calendarConnected ? await getProvider(user.userId, calendarRedirectUri()) : null;
 
@@ -108,7 +102,7 @@ export async function POST(req: NextRequest) {
       ? Math.min(slot.durationMinutes, 480)
       : 90;
 
-    const dates = parseSlotToDates({ ...slot, durationMinutes: duration }, now);
+    const dates = parseSlotToDates(tz, { ...slot, durationMinutes: duration }, now);
     if (!dates) {
       errors.push(`Could not parse slot: ${slot.day ?? ""} ${slot.time ?? slot.start ?? ""}`.trim());
       continue;

@@ -17,7 +17,9 @@ export default defineConfig({
     },
   ],
   webServer: {
-    command: "npm run dev",
+    // DEV_USER_ID= clears the dev-bypass so tests always run against
+    // real sign-in, regardless of the developer's local .env.local.
+    command: "DEV_USER_ID= npm run dev",
     url: "http://localhost:3001",
     reuseExistingServer: true,
     timeout: 30000,

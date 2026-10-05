@@ -29,7 +29,7 @@ test.describe.serial("Chat to goal flow", () => {
     await page.waitForTimeout(500);
 
     // Verify initial bot message
-    await expect(page.getByText("What are you working on?")).toBeVisible();
+    await expect(page.getByText("What's on your mind?")).toBeVisible();
 
     // Type a goal
     const input = page.locator("input[type='text'], input:not([type])").last();

@@ -15,7 +15,7 @@ export function NewProjectScreen() {
   const router = useRouter();
   const [authed, setAuthed] = useState<boolean | null>(null);
   const [messages, setMessages] = useState<Message[]>([
-    { who: "bot", text: "What are you working on? Tell me what you want to get done.", isAsk: true },
+    { who: "bot", text: "What's on your mind? A goal, a purchase, or a date worth remembering — say it plainly.", isAsk: true },
   ]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
@@ -137,7 +137,7 @@ export function NewProjectScreen() {
         </Link>
         <div style={{ flex: 1, minWidth: 0, textAlign: "right" }}>
           <div style={{ fontSize: 10, letterSpacing: "0.12em", textTransform: "uppercase", color: "color-mix(in srgb, var(--color-text) 35%, transparent)" }}>
-            New project
+            New
           </div>
           <div style={{ fontFamily: "var(--font-heading)", fontWeight: 500, fontSize: 16, lineHeight: 1.25, marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
             {goalCreated ? "Goal saved" : "Tell me about it"}
