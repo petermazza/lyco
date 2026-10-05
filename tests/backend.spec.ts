@@ -1,6 +1,35 @@
 import { test, expect, request as apiRequest } from "@playwright/test";
+import { execSync } from "child_process";
+import { readFileSync } from "fs";
+import crypto from "crypto";
+import pg from "pg";
 
 const BASE = "http://localhost:3001";
+
+// ─── Test DB access (reads .env.local for DATABASE_URL) ──────
+
+function dbUrl(): string {
+  const env = readFileSync(".env.local", "utf-8");
+  const match = env.match(/^DATABASE_URL=["']?(.+?)["']?\s*$/m);
+  if (!match) throw new Error("DATABASE_URL not found in .env.local");
+  return match[1];
+}
+
+function envVar(name: string): string {
+  const env = readFileSync(".env.local", "utf-8");
+  const match = env.match(new RegExp(`^${name}=["']?(.+?)["']?\\s*$`, "m"));
+  return match ? match[1] : "";
+}
+
+async function withDb<T>(fn: (c: pg.Client) => Promise<T>): Promise<T> {
+  const client = new pg.Client({ connectionString: dbUrl() });
+  await client.connect();
+  try {
+    return await fn(client);
+  } finally {
+    await client.end();
+  }
+}
 
 // ─── Auth API: request-link ──────────────────────────────────
 
@@ -697,6 +726,210 @@ test.describe.serial("chat: spending and dates", () => {
 
     const home = await (await ctx.get(`${BASE}/api/home`)).json();
     expect((home.upcoming as { title: string }[]).some((o) => o.title === title)).toBe(true);
+    await ctx.dispose();
+  });
+});
+
+// ─── Reminder sweep ──────────────────────────────────────────
+// Runs the real `npm run remind` command with an injected time and
+// a single-user scope, so nothing outside the test user is touched
+// and fake @lyco.test addresses never send real email.
+
+function runRemind(opts: { only: string; at?: Date; dryRun?: boolean }) {
+  const args = [`--only ${opts.only}`, "--json"];
+  if (opts.at) args.push(`--at ${opts.at.toISOString()}`);
+  if (opts.dryRun) args.push("--dry-run");
+  const out = execSync(`npm run --silent remind -- ${args.join(" ")}`, {
+    encoding: "utf-8",
+    cwd: process.cwd(),
+  });
+  const last = out.trim().split("\n").filter(Boolean).pop() ?? "[]";
+  return JSON.parse(last) as { kind: string; email: string; title: string; delivered: boolean }[];
+}
+
+test.describe.serial("reminder sweep", () => {
+  test("emails when a block starts, exactly once", async () => {
+    const email = `remind-start-${Date.now()}@lyco.test`;
+    const ctx = await loginCtx(email);
+
+    // Scheduled 3 min out so it isn't "just created for right now"
+    const start = new Date(Date.now() + 3 * 60000);
+    await ctx.post(`${BASE}/api/schedule/confirm`, {
+      data: {
+        goalTitle: "G",
+        slots: [{ start: start.toISOString(), durationMinutes: 60, title: "Deep work" }],
+      },
+    });
+
+    // Sweep as if it were 1 minute from now
+    const at = new Date(Date.now() + 60000);
+    const first = runRemind({ only: email, at });
+    expect(first.filter((r) => r.kind === "block_start" && r.title === "Deep work")).toHaveLength(1);
+    // Fake address — logged, not delivered
+    expect(first[0].delivered).toBe(false);
+
+    // Second run sends nothing new
+    const second = runRemind({ only: email, at });
+    expect(second).toHaveLength(0);
+    await ctx.dispose();
+  });
+
+  test("does not announce a block created to start right now", async () => {
+    const email = `remind-now-${Date.now()}@lyco.test`;
+    const ctx = await loginCtx(email);
+    const start = new Date(Date.now() - 60000); // started 1 min ago, just created
+    await ctx.post(`${BASE}/api/schedule/confirm`, {
+      data: {
+        goalTitle: "G",
+        slots: [{ start: start.toISOString(), durationMinutes: 60, title: "Right now" }],
+      },
+    });
+    const sent = runRemind({ only: email });
+    expect(sent.filter((r) => r.title === "Right now")).toHaveLength(0);
+    await ctx.dispose();
+  });
+
+  test("check-in goes out after a block ends, but not for a done block", async () => {
+    const email = `remind-checkin-${Date.now()}@lyco.test`;
+    const ctx = await loginCtx(email);
+
+    // Both ended 10 minutes ago
+    const start = new Date(Date.now() - 70 * 60000);
+    const conf = await ctx.post(`${BASE}/api/schedule/confirm`, {
+      data: {
+        goalTitle: "G",
+        slots: [
+          { start: start.toISOString(), durationMinutes: 60, title: "Open block" },
+          { start: start.toISOString(), durationMinutes: 60, title: "Finished block" },
+        ],
+      },
+    });
+    const { blocks } = await conf.json();
+    const doneId = blocks.find((b: { title: string }) => b.title === "Finished block").id;
+    await ctx.post(`${BASE}/api/blocks/${doneId}/done`, { data: {} });
+
+    const sent = runRemind({ only: email });
+    const checkins = sent.filter((r) => r.kind === "block_checkin");
+    expect(checkins.map((r) => r.title)).toEqual(["Open block"]);
+    await ctx.dispose();
+  });
+
+  test("blocks that ended days ago get no catch-up email", async () => {
+    const email = `remind-old-${Date.now()}@lyco.test`;
+    const ctx = await loginCtx(email);
+    const start = new Date(Date.now() - 2 * 86400000);
+    await ctx.post(`${BASE}/api/schedule/confirm`, {
+      data: {
+        goalTitle: "G",
+        slots: [{ start: start.toISOString(), durationMinutes: 60, title: "Ancient" }],
+      },
+    });
+    const sent = runRemind({ only: email });
+    expect(sent.filter((r) => r.title === "Ancient")).toHaveLength(0);
+    await ctx.dispose();
+  });
+
+  test("a moved block re-arms its start reminder at the new time", async () => {
+    const email = `remind-move-${Date.now()}@lyco.test`;
+    const ctx = await loginCtx(email);
+
+    const start = new Date(Date.now() + 3 * 60000);
+    const conf = await ctx.post(`${BASE}/api/schedule/confirm`, {
+      data: {
+        goalTitle: "G",
+        slots: [{ start: start.toISOString(), durationMinutes: 60, title: "Movable" }],
+      },
+    });
+    const { blocks } = await conf.json();
+
+    // First reminder at the original time
+    const at = new Date(Date.now() + 60000);
+    const first = runRemind({ only: email, at });
+    expect(first.filter((r) => r.kind === "block_start")).toHaveLength(1);
+
+    // Move it to tomorrow morning, then sweep at that moment
+    await ctx.post(`${BASE}/api/blocks/${blocks[0].id}/move`, {
+      data: { target: "tomorrow_morning" },
+    });
+    const tomorrow9 = new Date();
+    tomorrow9.setDate(tomorrow9.getDate() + 1);
+    tomorrow9.setHours(9, 1, 0, 0);
+    const second = runRemind({ only: email, at: tomorrow9 });
+    expect(second.filter((r) => r.kind === "block_start" && r.title === "Movable")).toHaveLength(1);
+    await ctx.dispose();
+  });
+
+  test("occasion heads-up respects daytime hours", async () => {
+    const email = `remind-occ-${Date.now()}@lyco.test`;
+    const ctx = await loginCtx(email);
+
+    // Pin the user's zone so the injected time is deterministic
+    await ctx.post(`${BASE}/api/user/timezone`, { data: { timezone: "Pacific/Kiritimati" } });
+    const me = await (await ctx.get(`${BASE}/api/auth/me`)).json();
+
+    // Inject "today at 12:00 in Kiritimati" = 22:00 UTC the day before
+    const kiritimatiNoon = new Date();
+    kiritimatiNoon.setUTCHours(22, 0, 0, 0); // local noon tomorrow-ish in UTC+14
+    // The local date at that instant, +7 days → occasion date
+    const parts = new Intl.DateTimeFormat("en-US", {
+      timeZone: "Pacific/Kiritimati",
+      year: "numeric", month: "2-digit", day: "2-digit",
+    }).formatToParts(kiritimatiNoon);
+    const y = +(parts.find((p) => p.type === "year")!.value);
+    const m = +(parts.find((p) => p.type === "month")!.value);
+    const dd = +(parts.find((p) => p.type === "day")!.value);
+    const occasionDate = new Date(Date.UTC(y, m - 1, dd + 7)).toISOString().slice(0, 10);
+
+    await withDb(async (c) => {
+      await c.query(
+        `INSERT INTO occasions (user_id, title, date) VALUES ($1, $2, $3)`,
+        [me.user.id, "Mum's birthday", occasionDate]
+      );
+    });
+
+    // At local noon → one occasion reminder
+    const sent = runRemind({ only: email, at: kiritimatiNoon });
+    expect(sent.filter((r) => r.kind === "occasion")).toHaveLength(1);
+
+    // At local 3 am → nothing
+    const kiritimati3am = new Date(kiritimatiNoon.getTime() - 9 * 3600000);
+    const quiet = runRemind({ only: email, at: kiritimati3am, dryRun: true });
+    expect(quiet.filter((r) => r.kind === "occasion")).toHaveLength(0);
+    await ctx.dispose();
+  });
+
+  test("unsubscribe link stops emails; a forged one is rejected", async () => {
+    const email = `remind-unsub-${Date.now()}@lyco.test`;
+    const ctx = await loginCtx(email);
+    const me = await (await ctx.get(`${BASE}/api/auth/me`)).json();
+    const uid = me.user.id;
+
+    const sig = crypto
+      .createHmac("sha256", envVar("AUTH_SECRET") || "dev-secret")
+      .update(`unsub:${uid}`)
+      .digest("hex")
+      .slice(0, 32);
+
+    // Forged signature → 400
+    const bad = await ctx.get(`${BASE}/api/user/reminders?u=${uid}&sig=bad`);
+    expect(bad.status()).toBe(400);
+
+    // Valid → off, and the flag flips in the DB
+    const off = await ctx.get(`${BASE}/api/user/reminders?u=${uid}&sig=${sig}`);
+    expect(off.status()).toBe(200);
+    expect(await off.text()).toContain("won't get reminder emails");
+    let flag = await withDb(async (c) =>
+      (await c.query(`SELECT reminder_emails FROM users WHERE id = $1`, [uid])).rows[0].reminder_emails
+    );
+    expect(flag).toBe(false);
+
+    // Turn back on
+    const on = await ctx.get(`${BASE}/api/user/reminders?u=${uid}&sig=${sig}&action=on`);
+    expect(on.status()).toBe(200);
+    flag = await withDb(async (c) =>
+      (await c.query(`SELECT reminder_emails FROM users WHERE id = $1`, [uid])).rows[0].reminder_emails
+    );
+    expect(flag).toBe(true);
     await ctx.dispose();
   });
 });

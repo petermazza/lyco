@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/session";
 import { query } from "@/lib/db";
 import { isCalendarConnected } from "@/lib/calendar/google";
+import { markMissedBlocks } from "@/lib/reminders";
 import {
   resolveTimezone,
   todayBounds,
@@ -57,7 +58,6 @@ interface HomeResponse {
 }
 
 // Grace period before an untouched block counts as missed.
-const MISSED_GRACE_MINUTES = 30;
 
 // ─── Route ───────────────────────────────────────────────────
 
@@ -73,13 +73,7 @@ export async function GET() {
   const { start: todayStart, end: todayEnd } = todayBounds(tz, now);
 
   // ─── Sweep: untouched blocks whose time has passed → missed ─
-  await query(
-    `UPDATE blocks SET status = 'missed'
-     WHERE user_id = $1
-       AND status IN ('scheduled', 'running')
-       AND scheduled_at + (duration_minutes || ' minutes')::interval < $2`,
-    [userId, new Date(now.getTime() - MISSED_GRACE_MINUTES * 60000)]
-  );
+  await markMissedBlocks(userId, now);
 
   // ─── Goals + calendar status ───────────────────────────────
   const goalRows = await query<{ count: string }>(

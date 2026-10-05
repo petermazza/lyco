@@ -22,6 +22,15 @@ function randomToken(): string {
   return crypto.randomBytes(32).toString("hex");
 }
 
+// Signature for one-click unsubscribe links in reminder emails.
+export function unsubscribeSignature(userId: string): string {
+  return crypto
+    .createHmac("sha256", AUTH_SECRET)
+    .update(`unsub:${userId}`)
+    .digest("hex")
+    .slice(0, 32);
+}
+
 // ─── Magic link flow ─────────────────────────────────────────
 
 export async function createMagicLink(email: string): Promise<{ token: string; link: string }> {

@@ -14,6 +14,8 @@ CREATE TABLE IF NOT EXISTS users (
 
 ALTER TABLE users ADD COLUMN IF NOT EXISTS timezone TEXT;
 
+ALTER TABLE users ADD COLUMN IF NOT EXISTS reminder_emails BOOLEAN NOT NULL DEFAULT true;
+
 -- ─── Magic link tokens ──────────────────────────────────────
 CREATE TABLE IF NOT EXISTS magic_link_tokens (
   id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -135,3 +137,19 @@ CREATE TABLE IF NOT EXISTS secrets (
 );
 
 CREATE INDEX IF NOT EXISTS idx_secrets_user_id ON secrets(user_id);
+
+-- ─── Reminders (one row per reminder sent) ──────────────────
+-- UNIQUE on (kind, target_id, target_key) makes sending exactly-once
+-- per (type, record, referenced time) and lets a moved block or
+-- rescheduled occasion re-arm its reminder at the new time.
+CREATE TABLE IF NOT EXISTS reminders (
+  id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id     UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  kind        TEXT NOT NULL,             -- 'block_start' | 'block_checkin' | 'occasion'
+  target_id   UUID NOT NULL,
+  target_key  TIMESTAMPTZ NOT NULL,      -- the time this reminder refers to
+  sent_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (kind, target_id, target_key)
+);
+
+CREATE INDEX IF NOT EXISTS idx_reminders_user_id ON reminders(user_id);
