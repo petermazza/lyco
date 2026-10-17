@@ -911,6 +911,139 @@ test.describe.serial("Model picker", () => {
   });
 });
 
+// ─── Side chat ───────────────────────────────────────────────
+// A pull-up panel that answers asides against the main
+// conversation without touching it.
+
+test.describe.serial("Side chat", () => {
+  test.beforeEach(async () => {
+    await reseed();
+  });
+
+  test("on /new it answers with main context and leaves the thread untouched", async ({ page }) => {
+    let sideBody: Record<string, unknown> | null = null;
+    await page.route("**/api/chat", (route) => {
+      const body = route.request().postDataJSON() as Record<string, unknown>;
+      if (body?.sideChat === true) sideBody = body;
+      route.fulfill({
+        status: 200,
+        json: {
+          text: "Cadence is how often you want to make time for it.",
+          toolCalls: [],
+          toolResults: [],
+          model: "claude-sonnet-5",
+        },
+      });
+    });
+
+    await gotoFreshUser(page, "/new");
+    await page.getByRole("button", { name: "side chat", exact: true }).click();
+    await expect(page.getByText("Side chat", { exact: true })).toBeVisible();
+    await expect(page.getByText("ask anything without losing your place.")).toBeVisible();
+    await expect(page.getByText("Ask a question on the side")).toBeVisible();
+
+    await page.getByPlaceholder("ask a side question").fill("what does cadence mean?");
+    await page.getByRole("button", { name: "send side" }).click();
+    await expect(page.getByText("Cadence is how often you want to make time for it.")).toBeVisible();
+
+    // The request carried the flag and the main thread as background
+    expect(sideBody).not.toBeNull();
+    expect(sideBody!.sideChat).toBe(true);
+    const mm = sideBody!.mainMessages as { role: string; content: string }[];
+    expect(mm.length).toBe(1);
+    expect(mm[0].role).toBe("assistant");
+    expect((sideBody!.messages as { content: string }[])[0].content).toBe("what does cadence mean?");
+
+    // Closing tucks it away — the main thread is untouched
+    await page.getByRole("button", { name: "Done", exact: true }).click();
+    await expect(page.getByText("Side chat", { exact: true })).not.toBeVisible();
+    await expect(page.getByText("what does cadence mean?")).not.toBeVisible();
+    await expect(page.getByText("What's on your mind?")).toBeVisible();
+    await expect(page.getByRole("button", { name: "side chat · 1", exact: true })).toBeVisible();
+  });
+
+  test("reopening the side chat keeps the side history", async ({ page }) => {
+    await page.route("**/api/chat", (route) =>
+      route.fulfill({
+        status: 200,
+        json: { text: "A short answer.", toolCalls: [], toolResults: [], model: "claude-sonnet-5" },
+      })
+    );
+
+    await gotoFreshUser(page, "/new");
+    await page.getByRole("button", { name: "side chat", exact: true }).click();
+    await page.getByPlaceholder("ask a side question").fill("quick aside");
+    await page.getByRole("button", { name: "send side" }).click();
+    await expect(page.getByText("A short answer.")).toBeVisible();
+    await page.getByRole("button", { name: "Done", exact: true }).click();
+
+    await page.getByRole("button", { name: "side chat · 1", exact: true }).click();
+    await expect(page.getByText("quick aside")).toBeVisible();
+    await expect(page.getByText("A short answer.")).toBeVisible();
+  });
+
+  test("a goal saved from the side chat updates the main screen", async ({ page }) => {
+    await page.route("**/api/chat", (route) =>
+      route.fulfill({
+        status: 200,
+        json: {
+          text: "Saved it.",
+          toolCalls: [{ name: "create_goal", arguments: { title: "Learn banjo" } }],
+          toolResults: [
+            { tool: "create_goal", success: true, data: { goal_id: "00000000-0000-0000-0000-000000000000" } },
+          ],
+          model: "claude-sonnet-5",
+        },
+      })
+    );
+
+    await gotoFreshUser(page, "/new");
+    await page.getByRole("button", { name: "side chat", exact: true }).click();
+    await page.getByPlaceholder("ask a side question").fill("actually save that as a goal");
+    await page.getByRole("button", { name: "send side" }).click();
+    await expect(page.getByText("Saved it.")).toBeVisible();
+
+    await page.getByRole("button", { name: "Done", exact: true }).click();
+    await expect(page.getByText("goal saved", { exact: true })).toBeVisible();
+    await expect(page.getByRole("link", { name: "find time for this" })).toBeVisible();
+  });
+
+  test("on /block the side chat carries the block and help context", async ({ page }) => {
+    let sideBody: Record<string, unknown> | null = null;
+    await page.route("**/api/chat", (route) => {
+      const body = route.request().postDataJSON() as Record<string, unknown>;
+      if (body?.sideChat === true) {
+        sideBody = body;
+        route.fulfill({
+          status: 200,
+          json: { text: "Try opening the file.", toolCalls: [], toolResults: [], model: "claude-sonnet-5" },
+        });
+      } else {
+        route.fulfill({
+          status: 200,
+          json: { text: "What is in front of you right now?", toolCalls: [], toolResults: [], model: "claude-sonnet-5" },
+        });
+      }
+    });
+
+    await gotoAuthenticated(page, "/block");
+    await page.getByRole("button", { name: "I don't know how to start" }).click();
+    await expect(page.getByText("What is in front of you right now?")).toBeVisible();
+
+    await page.getByRole("button", { name: "side chat", exact: true }).click();
+    await expect(page.getByText("Side chat", { exact: true })).toBeVisible();
+    await page.getByPlaceholder("ask a side question").fill("where would that file be?");
+    await page.getByRole("button", { name: "send side" }).click();
+    await expect(page.getByText("Try opening the file.")).toBeVisible();
+
+    expect(sideBody).not.toBeNull();
+    expect(String(sideBody!.context)).toContain("Block id");
+    const mm = sideBody!.mainMessages as { role: string; content: string }[];
+    expect(mm.length).toBe(2);
+    expect(mm[0].content).toBe("I don't know how to start.");
+  });
+});
+
 // ─── Attachments ─────────────────────────────────────────────
 
 async function withDb<T>(fn: (c: pg.Client) => Promise<T>): Promise<T> {

@@ -70,10 +70,64 @@ export async function POST(req: NextRequest) {
   const sessionId = body.sessionId ?? null;
   const context = typeof body.context === "string" ? body.context : undefined;
 
-  try {
-    const response = await callLLM(messages, user.userId, context, user.preferredModel ?? undefined);
+  // Optional side chat: `mainMessages` carries the ongoing conversation as
+  // read-only background so a side question never has to derail it.
+  if (body.mainMessages !== undefined) {
+    const badMain =
+      !Array.isArray(body.mainMessages) ||
+      body.mainMessages.some((m: unknown) => {
+        if (!m || typeof m !== "object") return true;
+        const msg = m as { content?: unknown; attachments?: unknown };
+        if (msg.content !== undefined && typeof msg.content !== "string") return true;
+        const hasText = typeof msg.content === "string" && msg.content.trim().length > 0;
+        const hasAtts = Array.isArray(msg.attachments) && msg.attachments.length > 0;
+        return !hasText && !hasAtts;
+      });
+    if (badMain) {
+      return NextResponse.json(
+        { error: "mainMessages must be an array of valid messages" },
+        { status: 400 }
+      );
+    }
+  }
 
-    await logInteraction(user.userId, sessionId, messages, response, response.model);
+  const sideChat = body.sideChat === true;
+  const mainMessages: ChatMessage[] = Array.isArray(body.mainMessages)
+    ? body.mainMessages.map(
+        (m: { role: string; content?: string; attachments?: { name?: string }[] }) => ({
+          role: m.role === "assistant" ? "assistant" : "user",
+          content:
+            (typeof m.content === "string" && m.content.trim() ? m.content : "See attached.") +
+            (Array.isArray(m.attachments) && m.attachments.length
+              ? ` [attached: ${m.attachments.map((a) => a?.name ?? "file").join(", ")}]`
+              : ""),
+        })
+      )
+    : [];
+
+  const sideContext = sideChat
+    ? [
+        mainMessages.length > 0
+          ? "Main conversation so far:\n" +
+            mainMessages
+              .map((m) => `${m.role === "assistant" ? "Assistant" : "User"}: ${m.content}`)
+              .join("\n")
+          : "",
+        "The user opened a side chat to ask a question or handle an aside without interrupting the main conversation above. " +
+          "Answer their side chat message directly and concisely using the main conversation as background context. " +
+          "Do not ask follow-up questions about unfinished details from the main conversation (such as missing deadlines or cadence) unless the user explicitly asks you to save a goal right now. " +
+          "If they explicitly ask to save a goal, log spending, add a date, or update a block in this side chat, call the appropriate tool as usual.",
+      ]
+        .filter(Boolean)
+        .join("\n\n")
+    : undefined;
+
+  const fullContext = [context, sideContext].filter(Boolean).join("\n\n") || undefined;
+
+  try {
+    const response = await callLLM(messages, user.userId, fullContext, user.preferredModel ?? undefined);
+
+    await logInteraction(user.userId, sessionId ?? (sideChat ? "side" : null), messages, response, response.model);
 
     return NextResponse.json({
       text: response.text,

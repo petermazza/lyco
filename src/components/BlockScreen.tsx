@@ -9,6 +9,7 @@ import {
   readFileAsAttachment,
   type ChatAttachment,
 } from "@/lib/attachments";
+import { SideChatSheet, type SideChatTurn } from "./SideChatSheet";
 
 // ─── Types ───────────────────────────────────────────────────
 
@@ -66,6 +67,8 @@ export function BlockScreen() {
   const [input, setInput] = useState("");
   const [pendingAttachments, setPendingAttachments] = useState<ChatAttachment[]>([]);
   const [chatLoading, setChatLoading] = useState(false);
+  const [sideOpen, setSideOpen] = useState(false);
+  const [sideMessages, setSideMessages] = useState<SideChatTurn[]>([]);
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -498,12 +501,28 @@ export function BlockScreen() {
           style={{
             marginTop: "auto",
             paddingTop: "var(--space-6)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            gap: 12,
             fontSize: 12,
             color: "color-mix(in srgb, var(--color-text) 35%, transparent)",
             background: "linear-gradient(to right, transparent, var(--color-divider) 24px, var(--color-divider) calc(100% - 24px), transparent) no-repeat top / 100% 1px",
           }}
         >
-          {mode === "help" ? "this conversation ends with one thing to do." : "nothing else is due right now."}
+          <span>{mode === "help" ? "this conversation ends with one thing to do." : "nothing else is due right now."}</span>
+          {mode === "help" && (
+            <button
+              type="button"
+              className="btn btn-ghost"
+              style={{ fontSize: 13, minHeight: 36, flex: "none" }}
+              onClick={() => setSideOpen(true)}
+            >
+              {sideMessages.some((m) => m.who === "user")
+                ? `side chat · ${sideMessages.filter((m) => m.who === "user").length}`
+                : "side chat"}
+            </button>
+          )}
         </div>
       </div>
 
@@ -618,6 +637,40 @@ export function BlockScreen() {
           </div>
         </div>
       )}
+
+      {/* side chat sheet */}
+      <SideChatSheet
+        open={sideOpen}
+        onClose={() => setSideOpen(false)}
+        messages={sideMessages}
+        setMessages={setSideMessages}
+        mainMessages={log.map((m) => ({
+          role: (m.who === "user" ? "user" : "assistant") as "user" | "assistant",
+          content: m.text,
+          attachments: m.attachments,
+        }))}
+        context={blockContext()}
+        onToolResults={(toolResults) => {
+          const update = toolResults.find(
+            (r) => r.tool === "update_block" && r.success
+          );
+          if (update?.data?.title || update?.data?.note) {
+            setBlock((b) =>
+              b
+                ? {
+                    ...b,
+                    ...(update.data!.title ? { title: update.data!.title as string } : {}),
+                    ...(update.data!.note ? { note: update.data!.note as string } : {}),
+                  }
+                : b
+            );
+            if (update.data!.title) {
+              setSideOpen(false);
+              setMode("settled");
+            }
+          }
+        }}
+      />
 
       {/* toast */}
       {toast && (

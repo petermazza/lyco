@@ -9,6 +9,7 @@ import {
   readFileAsAttachment,
   type ChatAttachment,
 } from "@/lib/attachments";
+import { SideChatSheet, type SideChatTurn } from "./SideChatSheet";
 
 interface Message {
   who: "user" | "bot";
@@ -38,6 +39,8 @@ export function NewProjectScreen() {
   const [model, setModel] = useState<string | null>(null);
   const [models, setModels] = useState<ModelOption[]>([]);
   const [picking, setPicking] = useState(false);
+  const [sideOpen, setSideOpen] = useState(false);
+  const [sideMessages, setSideMessages] = useState<SideChatTurn[]>([]);
   const [toast, setToast] = useState<string | null>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -316,6 +319,16 @@ export function NewProjectScreen() {
               model: {models.find((m) => m.id === model)?.label ?? model}
             </button>
           )}
+          <button
+            type="button"
+            className="btn btn-ghost"
+            style={{ fontSize: 13, minHeight: 44, flex: "none" }}
+            onClick={() => setSideOpen(true)}
+          >
+            {sideMessages.some((m) => m.who === "user")
+              ? `side chat · ${sideMessages.filter((m) => m.who === "user").length}`
+              : "side chat"}
+          </button>
         </div>
 
         {pendingAttachments.length > 0 && (
@@ -435,6 +448,28 @@ export function NewProjectScreen() {
           </div>
         </div>
       )}
+
+      {/* side chat sheet */}
+      <SideChatSheet
+        open={sideOpen}
+        onClose={() => setSideOpen(false)}
+        messages={sideMessages}
+        setMessages={setSideMessages}
+        mainMessages={messages.map((m) => ({
+          role: (m.who === "user" ? "user" : "assistant") as "user" | "assistant",
+          content: m.text,
+          attachments: m.attachments,
+        }))}
+        onToolResults={(toolResults) => {
+          const created = toolResults.find(
+            (r) => r.tool === "create_goal" && r.success
+          );
+          if (created) {
+            setGoalCreated(true);
+            if (created.data?.goal_id) setGoalId(created.data.goal_id as string);
+          }
+        }}
+      />
 
       {/* toast */}
       {toast && (

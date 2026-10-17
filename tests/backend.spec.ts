@@ -1852,3 +1852,65 @@ test.describe.serial("chat attachments and notes", () => {
     await ctx.dispose();
   });
 });
+
+// ─── Side chat ───────────────────────────────────────────────
+// A side question rides on the main conversation as read-only
+// background and is logged with session_id = 'side'.
+
+test.describe.serial("side chat", () => {
+  test.setTimeout(90000);
+
+  test("answers using the main conversation as background and logs 'side'", async () => {
+    const ctx = await loginCtx(`side-${Date.now()}@lyco.test`);
+    const uid = await userIdOf(ctx);
+
+    const res = await ctx.post(`${BASE}/api/chat`, {
+      data: {
+        sideChat: true,
+        mainMessages: [
+          { role: "user", content: "I want to learn the banjo" },
+          { role: "assistant", content: "When do you want to be able to play your first song?" },
+          // Attachment-only main turns are valid background context
+          { role: "user", content: "", attachments: [{ name: "chords.pdf" }] },
+        ],
+        messages: [
+          { role: "user", content: "What instrument did I just say I want to learn? Answer with the instrument name only." },
+        ],
+      },
+    });
+    expect(res.status()).toBe(200);
+    const body = await res.json();
+    expect(body.text.toLowerCase()).toContain("banjo");
+
+    const logged = await withDb(async (c) =>
+      (await c.query(
+        `SELECT session_id FROM llm_interactions WHERE user_id = $1 ORDER BY created_at DESC LIMIT 1`,
+        [uid]
+      )).rows[0].session_id
+    );
+    expect(logged).toBe("side");
+    await ctx.dispose();
+  });
+
+  test("rejects malformed mainMessages without calling the model", async () => {
+    const ctx = await loginCtx(`side-bad-${Date.now()}@lyco.test`);
+    const invalids: unknown[] = [
+      "not-an-array",
+      [{ role: "user", content: "" }],
+      [{ role: "user" }],
+      [{ role: "user", content: 42 }],
+      ["plain string"],
+    ];
+    for (const mainMessages of invalids) {
+      const res = await ctx.post(`${BASE}/api/chat`, {
+        data: {
+          sideChat: true,
+          mainMessages,
+          messages: [{ role: "user", content: "hi" }],
+        },
+      });
+      expect(res.status(), JSON.stringify(mainMessages)).toBe(400);
+    }
+    await ctx.dispose();
+  });
+});
