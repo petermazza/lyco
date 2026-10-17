@@ -9,13 +9,19 @@ import {
   readFileAsAttachment,
   type ChatAttachment,
 } from "@/lib/attachments";
-import { SideChatSheet, type SideChatTurn } from "./SideChatSheet";
+import {
+  SideChatSheet,
+  type SideChatTurn,
+  type SideChatPendingQuery,
+} from "./SideChatSheet";
+import { InteractiveBotMessage } from "./InteractiveBotMessage";
 
 interface Message {
   who: "user" | "bot";
   text: string;
   isAsk?: boolean;
   attachments?: { name: string }[];
+  replyTo?: string;
 }
 
 interface ModelOption {
@@ -41,6 +47,8 @@ export function NewProjectScreen() {
   const [picking, setPicking] = useState(false);
   const [sideOpen, setSideOpen] = useState(false);
   const [sideMessages, setSideMessages] = useState<SideChatTurn[]>([]);
+  const [pendingSideQuery, setPendingSideQuery] = useState<SideChatPendingQuery | null>(null);
+  const [replyingTo, setReplyingTo] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -115,18 +123,20 @@ export function NewProjectScreen() {
     }
   }, [searchParams, authed]);
 
-  const sendMessage = useCallback(async (text: string, atts: ChatAttachment[] = []) => {
+  const sendMessage = useCallback(async (text: string, atts: ChatAttachment[] = [], replyTo?: string) => {
     if ((!text.trim() && atts.length === 0) || loading) return;
 
     const userMsg: Message = {
       who: "user",
       text: text.trim() || "See attached.",
       attachments: atts.length ? atts.map((a) => ({ name: a.name })) : undefined,
+      replyTo: replyTo?.trim() ? replyTo.trim() : undefined,
     };
     const newMessages = [...messages, userMsg];
     setMessages(newMessages);
     setInput("");
     setPendingAttachments([]);
+    setReplyingTo(null);
     setLoading(true);
 
     const controller = new AbortController();
@@ -143,6 +153,7 @@ export function NewProjectScreen() {
             // bubbles keep just the names.
             attachments:
               i === newMessages.length - 1 && atts.length ? atts : undefined,
+            replyTo: i === newMessages.length - 1 && m.replyTo ? m.replyTo : undefined,
           })),
         }),
         signal: controller.signal,
@@ -201,8 +212,13 @@ export function NewProjectScreen() {
 
   const handleSubmit = useCallback((e: React.FormEvent) => {
     e.preventDefault();
-    sendMessage(input, pendingAttachments);
-  }, [input, pendingAttachments, sendMessage]);
+    sendMessage(input, pendingAttachments, replyingTo ?? undefined);
+  }, [input, pendingAttachments, replyingTo, sendMessage]);
+
+  const openSideWith = useCallback((text: string, replyTo?: string) => {
+    setSideOpen(true);
+    setPendingSideQuery({ id: Date.now() + Math.random(), text, replyTo });
+  }, []);
 
   const quiet = "color-mix(in srgb, var(--color-text) 28%, transparent)";
   const set = "color-mix(in srgb, var(--color-text) 75%, transparent)";
@@ -258,19 +274,49 @@ export function NewProjectScreen() {
                       {a.name}
                     </div>
                   ))}
+                  {m.replyTo && (
+                    <div
+                      data-testid="message-quote"
+                      style={{
+                        borderLeft: "2px solid var(--color-accent)",
+                        paddingLeft: 8,
+                        marginBottom: 6,
+                        fontSize: 12.5,
+                        color: "var(--app-text-muted)",
+                      }}
+                    >
+                      {m.replyTo}
+                    </div>
+                  )}
                   <div>{m.text}</div>
                 </div>
               </div>
             )}
             {m.who === "bot" && !m.isAsk && (
-              <div style={{ maxWidth: "88%", fontSize: 15, lineHeight: 1.5, color: "color-mix(in srgb, var(--color-text) 55%, transparent)", textWrap: "pretty" }}>
-                {m.text}
-              </div>
+              <InteractiveBotMessage
+                text={m.text}
+                style={{ maxWidth: "88%", fontSize: 15, lineHeight: 1.5, color: "color-mix(in srgb, var(--color-text) 55%, transparent)", textWrap: "pretty", whiteSpace: "pre-wrap" }}
+                onReply={(quote) => {
+                  setReplyingTo(quote);
+                  inputRef.current?.focus();
+                }}
+                onAskWhy={(sentence) => openSideWith("Why?", sentence)}
+                onExplain={(sentence) => openSideWith("Explain this.", sentence)}
+                onAskTerm={(term, sentence) => openSideWith(`Tell me more about "${term}".`, sentence)}
+              />
             )}
             {m.who === "bot" && m.isAsk && (
-              <div style={{ maxWidth: "92%", fontFamily: "var(--font-heading)", fontWeight: 500, fontSize: 21, lineHeight: 1.3, letterSpacing: "-0.015em", textWrap: "pretty", animation: "noct-in 260ms ease both" }}>
-                {m.text}
-              </div>
+              <InteractiveBotMessage
+                text={m.text}
+                style={{ maxWidth: "92%", fontFamily: "var(--font-heading)", fontWeight: 500, fontSize: 21, lineHeight: 1.3, letterSpacing: "-0.015em", textWrap: "pretty", animation: "noct-in 260ms ease both", whiteSpace: "pre-wrap" }}
+                onReply={(quote) => {
+                  setReplyingTo(quote);
+                  inputRef.current?.focus();
+                }}
+                onAskWhy={(sentence) => openSideWith("Why?", sentence)}
+                onExplain={(sentence) => openSideWith("Explain this.", sentence)}
+                onAskTerm={(term, sentence) => openSideWith(`Tell me more about "${term}".`, sentence)}
+              />
             )}
           </div>
         ))}
@@ -358,6 +404,38 @@ export function NewProjectScreen() {
                 </button>
               </span>
             ))}
+          </div>
+        )}
+
+        {replyingTo && (
+          <div
+            data-testid="reply-preview"
+            style={{
+              display: "flex",
+              alignItems: "flex-start",
+              gap: 10,
+              marginTop: "var(--space-3)",
+              padding: "8px 10px",
+              border: "1px solid var(--app-hairline)",
+              borderRadius: "var(--radius-md)",
+            }}
+          >
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 9.5, letterSpacing: "0.1em", textTransform: "uppercase", color: "var(--app-text-quiet)" }}>
+                replying to
+              </div>
+              <div style={{ fontSize: 13, marginTop: 2, color: "var(--app-text-secondary)", overflow: "hidden", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}>
+                {replyingTo}
+              </div>
+            </div>
+            <button
+              type="button"
+              aria-label="cancel reply"
+              onClick={() => setReplyingTo(null)}
+              style={{ background: "none", border: "none", padding: "2px 4px", cursor: "pointer", color: "var(--app-text-muted)", fontSize: 14, lineHeight: 1 }}
+            >
+              ×
+            </button>
           </div>
         )}
 
@@ -455,10 +533,13 @@ export function NewProjectScreen() {
         onClose={() => setSideOpen(false)}
         messages={sideMessages}
         setMessages={setSideMessages}
+        pendingQuery={pendingSideQuery}
+        onPendingQueryHandled={() => setPendingSideQuery(null)}
         mainMessages={messages.map((m) => ({
           role: (m.who === "user" ? "user" : "assistant") as "user" | "assistant",
           content: m.text,
           attachments: m.attachments,
+          replyTo: m.replyTo,
         }))}
         onToolResults={(toolResults) => {
           const created = toolResults.find(

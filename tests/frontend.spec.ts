@@ -129,7 +129,12 @@ test.describe.serial("Home screen", () => {
   test("shows later today items", async ({ page }) => {
     await gotoHome(page);
     await expect(page.getByText("Later today")).toBeVisible();
-    await expect(page.getByText("Walk, no phone")).toBeVisible();
+    // The seed plants this block +75 minutes out — run late in the
+    // evening it lands past midnight and the section shows its
+    // empty state instead.
+    await expect(
+      page.getByText("Walk, no phone").or(page.getByText("nothing else today."))
+    ).toBeVisible();
   });
 
   test("shows spending section with categories", async ({ page }) => {
@@ -1145,5 +1150,182 @@ test.describe.serial("Attachments", () => {
     expect(sentBody).not.toBeNull();
     const last = sentBody!.messages[sentBody!.messages.length - 1];
     expect(last.attachments![0].name).toBe("spec.txt");
+  });
+});
+
+// ─── Sentence reply, explain/why, and clickable search terms ──
+// Hovering a sentence in an assistant message offers reply / why? /
+// explain this; key terms open a side-chat-or-web-search menu.
+
+test.describe.serial("Sentence reply, explain/why, and clickable search terms", () => {
+  test.beforeEach(async () => {
+    await reseed();
+  });
+
+  test("hovering a sentence offers reply, why?, and explain this on /new", async ({ page }) => {
+    await gotoFreshUser(page, "/new");
+    await page.locator('[data-testid="bot-sentence"]').first().hover();
+    const actions = page.locator('[data-testid="sentence-actions"]');
+    await expect(actions).toBeVisible();
+    await expect(actions.getByRole("button", { name: "reply to sentence" })).toBeVisible();
+    // The opening message is one paragraph of two sentences
+    await expect(actions.getByRole("button", { name: "reply to paragraph" })).toBeVisible();
+    await expect(actions.getByRole("button", { name: "ask why" })).toBeVisible();
+    await expect(actions.getByRole("button", { name: "explain this" })).toBeVisible();
+  });
+
+  test("replying to a sentence quotes it above the box and sends it with the message", async ({ page }) => {
+    let sentBody: { messages: { content: string; replyTo?: string }[] } | null = null;
+    await page.route("**/api/chat", (route) => {
+      sentBody = route.request().postDataJSON();
+      route.fulfill({
+        status: 200,
+        json: { text: "Got it.", toolCalls: [], toolResults: [] },
+      });
+    });
+
+    await gotoFreshUser(page, "/new");
+    await page.locator('[data-testid="bot-sentence"]').first().hover();
+    await page.getByRole("button", { name: "reply to sentence" }).click();
+
+    const preview = page.locator('[data-testid="reply-preview"]');
+    await expect(preview).toBeVisible();
+    await expect(preview).toContainText("What's on your mind?");
+
+    // Cancelling clears the quote
+    await page.getByRole("button", { name: "cancel reply" }).click();
+    await expect(preview).not.toBeVisible();
+
+    // Pick it again and send
+    await page.locator('[data-testid="bot-sentence"]').first().hover();
+    await page.getByRole("button", { name: "reply to sentence" }).click();
+    const input = page.locator("input").last();
+    await input.fill("more detail please");
+    await page.getByRole("button", { name: "send" }).click();
+    await expect(page.getByText("Got it.")).toBeVisible();
+
+    expect(sentBody).not.toBeNull();
+    const last = sentBody!.messages[sentBody!.messages.length - 1];
+    expect(last.content).toBe("more detail please");
+    expect(last.replyTo).toBe("What's on your mind?");
+
+    // The quote rides along inside the user's bubble
+    const quote = page.locator('[data-testid="message-quote"]');
+    await expect(quote).toBeVisible();
+    await expect(quote).toContainText("What's on your mind?");
+  });
+
+  test("reply to paragraph quotes the whole paragraph", async ({ page }) => {
+    await gotoFreshUser(page, "/new");
+    await page.locator('[data-testid="bot-sentence"]').nth(1).hover();
+    await page.getByRole("button", { name: "reply to paragraph" }).click();
+    const preview = page.locator('[data-testid="reply-preview"]');
+    await expect(preview).toBeVisible();
+    await expect(preview).toContainText("What's on your mind?");
+    await expect(preview).toContainText("say it plainly");
+  });
+
+  test("why? opens side chat and asks about that sentence", async ({ page }) => {
+    let sideBody: {
+      sideChat?: boolean;
+      messages: { content: string; replyTo?: string }[];
+    } | null = null;
+    await page.route("**/api/chat", (route) => {
+      const body = route.request().postDataJSON();
+      if (body?.sideChat === true) sideBody = body;
+      route.fulfill({
+        status: 200,
+        json: { text: "Because it keeps you honest.", toolCalls: [], toolResults: [] },
+      });
+    });
+
+    await gotoFreshUser(page, "/new");
+    await page.locator('[data-testid="bot-sentence"]').nth(1).hover();
+    await page.getByRole("button", { name: "ask why" }).click();
+
+    await expect(page.getByText("Side chat", { exact: true })).toBeVisible();
+    await expect(page.getByText("Because it keeps you honest.")).toBeVisible();
+
+    expect(sideBody).not.toBeNull();
+    expect(sideBody!.sideChat).toBe(true);
+    expect(sideBody!.messages[0].content).toBe("Why?");
+    expect(sideBody!.messages[0].replyTo).toContain("worth remembering");
+
+    // The quoted sentence shows in the side-chat user bubble
+    const quote = page.locator('[data-testid="message-quote"]');
+    await expect(quote).toBeVisible();
+
+    // The main conversation is untouched — still just the opener
+    await expect(page.getByText("What's on your mind?")).toBeVisible();
+    const mainBotSentences = page.locator('[data-testid="bot-sentence"]');
+    // 2 in the opener + sentences inside the side chat answer
+    expect(await mainBotSentences.count()).toBeGreaterThanOrEqual(2);
+  });
+
+  test("clicking a search term offers side chat or a web search", async ({ page }) => {
+    let sideBody: { messages: { content: string }[] } | null = null;
+    await page.route("**/api/chat", (route) => {
+      const body = route.request().postDataJSON();
+      if (body?.sideChat === true) sideBody = body;
+      route.fulfill({
+        status: 200,
+        json: { text: "It means how often you repeat something.", toolCalls: [], toolResults: [] },
+      });
+    });
+
+    await gotoFreshUser(page, "/new");
+    const term = page.locator('[data-testid="search-term"]').first();
+    await expect(term).toBeVisible();
+    await term.click();
+
+    const menu = page.locator('[data-testid="search-term-menu"]');
+    await expect(menu).toBeVisible();
+    await expect(menu.getByRole("button", { name: "Ask in side chat" })).toBeVisible();
+
+    const web = menu.getByRole("link", { name: "Search the web" });
+    await expect(web).toBeVisible();
+    await expect(web).toHaveAttribute("href", /google\.com\/search\?q=/);
+    await expect(web).toHaveAttribute("target", "_blank");
+
+    await menu.getByRole("button", { name: "Ask in side chat" }).click();
+    await expect(page.getByText("Side chat", { exact: true })).toBeVisible();
+    await expect(page.getByText("It means how often you repeat something.")).toBeVisible();
+    expect(sideBody).not.toBeNull();
+    expect(sideBody!.messages[0].content).toContain("Tell me more about");
+  });
+
+  test("the same actions work inside the block help conversation", async ({ page }) => {
+    let sideBody: Record<string, unknown> | null = null;
+    await page.route("**/api/chat", (route) => {
+      const body = route.request().postDataJSON() as Record<string, unknown>;
+      if (body?.sideChat === true) {
+        sideBody = body;
+        route.fulfill({
+          status: 200,
+          json: { text: "A first step is the smallest move.", toolCalls: [], toolResults: [] },
+        });
+      } else {
+        route.fulfill({
+          status: 200,
+          json: { text: "Open the adapter file. Then read the first line.", toolCalls: [], toolResults: [] },
+        });
+      }
+    });
+
+    await gotoAuthenticated(page, "/block");
+    await page.getByRole("button", { name: "I don't know how to start" }).click();
+    await expect(page.getByText("Open the adapter file.")).toBeVisible();
+
+    await page.locator('[data-testid="bot-sentence"]').nth(1).hover();
+    await page.getByRole("button", { name: "explain this" }).click();
+
+    await expect(page.getByText("Side chat", { exact: true })).toBeVisible();
+    await expect(page.getByText("A first step is the smallest move.")).toBeVisible();
+
+    expect(sideBody).not.toBeNull();
+    expect(String(sideBody!.context)).toContain("Block id");
+    const msgs = sideBody!.messages as { content: string; replyTo?: string }[];
+    expect(msgs[0].content).toBe("Explain this.");
+    expect(msgs[0].replyTo).toContain("first line");
   });
 });

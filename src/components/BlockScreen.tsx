@@ -9,7 +9,12 @@ import {
   readFileAsAttachment,
   type ChatAttachment,
 } from "@/lib/attachments";
-import { SideChatSheet, type SideChatTurn } from "./SideChatSheet";
+import {
+  SideChatSheet,
+  type SideChatTurn,
+  type SideChatPendingQuery,
+} from "./SideChatSheet";
+import { InteractiveBotMessage } from "./InteractiveBotMessage";
 
 // ─── Types ───────────────────────────────────────────────────
 
@@ -29,6 +34,7 @@ interface ChatMessage {
   text: string;
   ask?: boolean;
   attachments?: { name: string }[];
+  replyTo?: string;
 }
 
 type BlockMode = "running" | "help" | "settled" | "closed";
@@ -69,6 +75,8 @@ export function BlockScreen() {
   const [chatLoading, setChatLoading] = useState(false);
   const [sideOpen, setSideOpen] = useState(false);
   const [sideMessages, setSideMessages] = useState<SideChatTurn[]>([]);
+  const [pendingSideQuery, setPendingSideQuery] = useState<SideChatPendingQuery | null>(null);
+  const [replyingTo, setReplyingTo] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -201,7 +209,7 @@ export function BlockScreen() {
     );
   }, [block, elapsedMin, leftMin]);
 
-  const sendChat = useCallback(async (text: string, atts: ChatAttachment[] = []) => {
+  const sendChat = useCallback(async (text: string, atts: ChatAttachment[] = [], replyTo?: string) => {
     if ((!text.trim() && atts.length === 0) || chatLoading) return;
 
     const newLog: ChatMessage[] = [
@@ -210,11 +218,13 @@ export function BlockScreen() {
         who: "user",
         text: text.trim() || "See attached.",
         attachments: atts.length ? atts.map((a) => ({ name: a.name })) : undefined,
+        replyTo: replyTo?.trim() ? replyTo.trim() : undefined,
       },
     ];
     setLog(newLog);
     setInput("");
     setPendingAttachments([]);
+    setReplyingTo(null);
     setChatLoading(true);
 
     const controller = new AbortController();
@@ -230,6 +240,7 @@ export function BlockScreen() {
             // Only the message being sent carries file bytes — earlier
             // bubbles keep just the names.
             attachments: i === newLog.length - 1 && atts.length ? atts : undefined,
+            replyTo: i === newLog.length - 1 && m.replyTo ? m.replyTo : undefined,
           })),
           context: blockContext(),
         }),
@@ -278,6 +289,11 @@ export function BlockScreen() {
     setMode("help");
     sendChat("I don't know how to start.");
   }, [sendChat]);
+
+  const openSideWith = useCallback((text: string, replyTo?: string) => {
+    setSideOpen(true);
+    setPendingSideQuery({ id: Date.now() + Math.random(), text, replyTo });
+  }, []);
 
   const openPicker = useCallback((intent: "running" | "help") => {
     attachIntentRef.current = intent;
@@ -446,14 +462,36 @@ export function BlockScreen() {
                           {a.name}
                         </div>
                       ))}
+                      {m.replyTo && (
+                        <div
+                          data-testid="message-quote"
+                          style={{
+                            borderLeft: "2px solid var(--color-accent)",
+                            paddingLeft: 8,
+                            marginBottom: 6,
+                            fontSize: 12.5,
+                            color: "var(--app-text-muted)",
+                          }}
+                        >
+                          {m.replyTo}
+                        </div>
+                      )}
                       <div>{m.text}</div>
                     </div>
                   </div>
                 )}
                 {m.who === "bot" && (
-                  <div style={{ maxWidth: "92%", fontFamily: "var(--font-heading)", fontWeight: 500, fontSize: 19, lineHeight: 1.35, letterSpacing: "-0.015em", textWrap: "pretty", animation: "noct-in 260ms ease both" }}>
-                    {m.text}
-                  </div>
+                  <InteractiveBotMessage
+                    text={m.text}
+                    style={{ maxWidth: "92%", fontFamily: "var(--font-heading)", fontWeight: 500, fontSize: 19, lineHeight: 1.35, letterSpacing: "-0.015em", textWrap: "pretty", animation: "noct-in 260ms ease both", whiteSpace: "pre-wrap" }}
+                    onReply={(quote) => {
+                      setReplyingTo(quote);
+                      inputRef.current?.focus();
+                    }}
+                    onAskWhy={(sentence) => openSideWith("Why?", sentence)}
+                    onExplain={(sentence) => openSideWith("Explain this.", sentence)}
+                    onAskTerm={(term, sentence) => openSideWith(`Tell me more about "${term}".`, sentence)}
+                  />
                 )}
               </div>
             ))}
@@ -558,10 +596,41 @@ export function BlockScreen() {
               ))}
             </div>
           )}
+          {replyingTo && (
+            <div
+              data-testid="reply-preview"
+              style={{
+                display: "flex",
+                alignItems: "flex-start",
+                gap: 10,
+                marginBottom: "var(--space-3)",
+                padding: "8px 10px",
+                border: "1px solid var(--app-hairline)",
+                borderRadius: "var(--radius-md)",
+              }}
+            >
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 9.5, letterSpacing: "0.1em", textTransform: "uppercase", color: "var(--app-text-quiet)" }}>
+                  replying to
+                </div>
+                <div style={{ fontSize: 13, marginTop: 2, color: "var(--app-text-secondary)", overflow: "hidden", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}>
+                  {replyingTo}
+                </div>
+              </div>
+              <button
+                type="button"
+                aria-label="cancel reply"
+                onClick={() => setReplyingTo(null)}
+                style={{ background: "none", border: "none", padding: "2px 4px", cursor: "pointer", color: "var(--app-text-muted)", fontSize: 14, lineHeight: 1 }}
+              >
+                ×
+              </button>
+            </div>
+          )}
           <form
             onSubmit={(e) => {
               e.preventDefault();
-              sendChat(input, pendingAttachments);
+              sendChat(input, pendingAttachments, replyingTo ?? undefined);
             }}
             style={{ display: "flex", alignItems: "center", gap: "var(--space-3)" }}
           >
@@ -644,10 +713,13 @@ export function BlockScreen() {
         onClose={() => setSideOpen(false)}
         messages={sideMessages}
         setMessages={setSideMessages}
+        pendingQuery={pendingSideQuery}
+        onPendingQueryHandled={() => setPendingSideQuery(null)}
         mainMessages={log.map((m) => ({
           role: (m.who === "user" ? "user" : "assistant") as "user" | "assistant",
           content: m.text,
           attachments: m.attachments,
+          replyTo: m.replyTo,
         }))}
         context={blockContext()}
         onToolResults={(toolResults) => {

@@ -1,12 +1,20 @@
 "use client";
 
 import React, { useState, useRef, useEffect, useCallback } from "react";
+import { InteractiveBotMessage } from "./InteractiveBotMessage";
 
 // ─── Types ───────────────────────────────────────────────────
 
 export interface SideChatTurn {
   who: "user" | "bot";
   text: string;
+  replyTo?: string;
+}
+
+export interface SideChatPendingQuery {
+  id: number;
+  text: string;
+  replyTo?: string;
 }
 
 interface SideChatSheetProps {
@@ -14,8 +22,15 @@ interface SideChatSheetProps {
   onClose: () => void;
   messages: SideChatTurn[];
   setMessages: React.Dispatch<React.SetStateAction<SideChatTurn[]>>;
-  mainMessages: { role: "user" | "assistant"; content: string; attachments?: { name: string }[] }[];
+  mainMessages: {
+    role: "user" | "assistant";
+    content: string;
+    attachments?: { name: string }[];
+    replyTo?: string;
+  }[];
   context?: string;
+  pendingQuery?: SideChatPendingQuery | null;
+  onPendingQueryHandled?: () => void;
   onToolResults?: (
     toolResults: { tool: string; success: boolean; data?: Record<string, unknown> }[]
   ) => void;
@@ -33,12 +48,16 @@ export function SideChatSheet({
   setMessages,
   mainMessages,
   context,
+  pendingQuery,
+  onPendingQueryHandled,
   onToolResults,
 }: SideChatSheetProps) {
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
+  const [replyingTo, setReplyingTo] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const lastPendingId = useRef<number | null>(null);
 
   useEffect(() => {
     const el = scrollRef.current;
@@ -50,12 +69,16 @@ export function SideChatSheet({
   }, [open]);
 
   const sendSide = useCallback(
-    async (text: string) => {
+    async (text: string, replyTo?: string) => {
       if (!text.trim() || loading) return;
 
-      const next: SideChatTurn[] = [...messages, { who: "user", text }];
+      const next: SideChatTurn[] = [
+        ...messages,
+        { who: "user", text, ...(replyTo?.trim() ? { replyTo: replyTo.trim() } : {}) },
+      ];
       setMessages(next);
       setInput("");
+      setReplyingTo(null);
       setLoading(true);
 
       const controller = new AbortController();
@@ -65,9 +88,10 @@ export function SideChatSheet({
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            messages: next.map((m) => ({
+            messages: next.map((m, i) => ({
               role: m.who === "user" ? "user" : "assistant",
               content: m.text,
+              replyTo: i === next.length - 1 && m.replyTo ? m.replyTo : undefined,
             })),
             sideChat: true,
             mainMessages,
@@ -99,6 +123,16 @@ export function SideChatSheet({
     },
     [messages, loading, setMessages, mainMessages, context, onToolResults]
   );
+
+  // A parent can hand the sheet a ready-made question (why? /
+  // explain this / a search term) — send it as soon as it opens.
+  useEffect(() => {
+    if (!open || !pendingQuery) return;
+    if (lastPendingId.current === pendingQuery.id) return;
+    lastPendingId.current = pendingQuery.id;
+    onPendingQueryHandled?.();
+    sendSide(pendingQuery.text, pendingQuery.replyTo);
+  }, [open, pendingQuery, sendSide, onPendingQueryHandled]);
 
   if (!open) return null;
 
@@ -152,14 +186,36 @@ export function SideChatSheet({
               {m.who === "user" && (
                 <div style={{ display: "flex", justifyContent: "flex-end" }}>
                   <div style={{ maxWidth: "82%", background: "var(--color-bg)", borderRadius: "var(--radius-lg)", padding: "10px 14px", fontSize: 15, lineHeight: 1.45, textWrap: "pretty" }}>
-                    {m.text}
+                    {m.replyTo && (
+                      <div
+                        data-testid="message-quote"
+                        style={{
+                          borderLeft: "2px solid var(--color-accent)",
+                          paddingLeft: 8,
+                          marginBottom: 6,
+                          fontSize: 12.5,
+                          color: "var(--app-text-muted)",
+                        }}
+                      >
+                        {m.replyTo}
+                      </div>
+                    )}
+                    <div>{m.text}</div>
                   </div>
                 </div>
               )}
               {m.who === "bot" && (
-                <div style={{ maxWidth: "92%", fontFamily: "var(--font-heading)", fontWeight: 500, fontSize: 17, lineHeight: 1.35, letterSpacing: "-0.015em", textWrap: "pretty", animation: "noct-in 260ms ease both" }}>
-                  {m.text}
-                </div>
+                <InteractiveBotMessage
+                  text={m.text}
+                  style={{ maxWidth: "92%", fontFamily: "var(--font-heading)", fontWeight: 500, fontSize: 17, lineHeight: 1.35, letterSpacing: "-0.015em", textWrap: "pretty", animation: "noct-in 260ms ease both", whiteSpace: "pre-wrap" }}
+                  onReply={(quote) => {
+                    setReplyingTo(quote);
+                    inputRef.current?.focus();
+                  }}
+                  onAskWhy={(sentence) => sendSide("Why?", sentence)}
+                  onExplain={(sentence) => sendSide("Explain this.", sentence)}
+                  onAskTerm={(term, sentence) => sendSide(`Tell me more about "${term}".`, sentence)}
+                />
               )}
             </div>
           ))}
@@ -170,10 +226,41 @@ export function SideChatSheet({
           )}
         </div>
 
+        {replyingTo && (
+          <div
+            data-testid="reply-preview"
+            style={{
+              display: "flex",
+              alignItems: "flex-start",
+              gap: 10,
+              marginBottom: "var(--space-2)",
+              padding: "8px 10px",
+              border: "1px solid var(--app-hairline)",
+              borderRadius: "var(--radius-md)",
+            }}
+          >
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 9.5, letterSpacing: "0.1em", textTransform: "uppercase", color: "var(--app-text-quiet)" }}>
+                replying to
+              </div>
+              <div style={{ fontSize: 13, marginTop: 2, color: "var(--app-text-secondary)", overflow: "hidden", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}>
+                {replyingTo}
+              </div>
+            </div>
+            <button
+              type="button"
+              aria-label="cancel reply"
+              onClick={() => setReplyingTo(null)}
+              style={{ background: "none", border: "none", padding: "2px 4px", cursor: "pointer", color: "var(--app-text-muted)", fontSize: 14, lineHeight: 1 }}
+            >
+              ×
+            </button>
+          </div>
+        )}
         <form
           onSubmit={(e) => {
             e.preventDefault();
-            sendSide(input);
+            sendSide(input, replyingTo ?? undefined);
           }}
           style={{ display: "flex", alignItems: "center", gap: "var(--space-3)", marginTop: "var(--space-2)", flex: "none" }}
         >

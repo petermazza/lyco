@@ -15,13 +15,25 @@ export async function POST(req: NextRequest) {
   }
 
   // A message is valid with either text or attachments — attachments
-  // are read once and never stored.
+  // are read once and never stored. replyTo carries the quoted sentence
+  // or paragraph the user is replying to, if any.
+  const MAX_REPLY_TO_LENGTH = 2000;
   let attachmentError: string | null = null;
   const malformed = body.messages.some((m: unknown) => {
     if (!m || typeof m !== "object") return true;
-    const msg = m as { content?: unknown; attachments?: unknown };
+    const msg = m as { content?: unknown; attachments?: unknown; replyTo?: unknown };
     const hasText = typeof msg.content === "string" && msg.content.trim().length > 0;
     if (msg.content !== undefined && typeof msg.content !== "string") return true;
+    if (msg.replyTo !== undefined) {
+      if (
+        typeof msg.replyTo !== "string" ||
+        msg.replyTo.trim().length === 0 ||
+        msg.replyTo.length > MAX_REPLY_TO_LENGTH
+      ) {
+        attachmentError = `replyTo must be a non-empty string up to ${MAX_REPLY_TO_LENGTH} characters`;
+        return true;
+      }
+    }
 
     let atts: unknown[] = [];
     if (msg.attachments !== undefined) {
@@ -52,16 +64,22 @@ export async function POST(req: NextRequest) {
   }
 
   const messages: ChatMessage[] = body.messages.map(
-    (m: { role: string; content?: string; attachments?: unknown[] }) => {
+    (m: { role: string; content?: string; attachments?: unknown[]; replyTo?: string }) => {
       const attachments: ChatAttachment[] | undefined = m.attachments?.length
         ? m.attachments.map((a) => {
             const check = validateAttachment(a);
             return check.ok ? check.value : (a as ChatAttachment);
           })
         : undefined;
+      const replyPrefix =
+        typeof m.replyTo === "string" && m.replyTo.trim()
+          ? `[Replying to: "${m.replyTo.trim()}"]\n`
+          : "";
       return {
         role: m.role === "assistant" ? "assistant" : "user",
-        content: typeof m.content === "string" && m.content.trim() ? m.content : "See attached.",
+        content:
+          replyPrefix +
+          (typeof m.content === "string" && m.content.trim() ? m.content : "See attached."),
         attachments,
       };
     }
@@ -77,8 +95,9 @@ export async function POST(req: NextRequest) {
       !Array.isArray(body.mainMessages) ||
       body.mainMessages.some((m: unknown) => {
         if (!m || typeof m !== "object") return true;
-        const msg = m as { content?: unknown; attachments?: unknown };
+        const msg = m as { content?: unknown; attachments?: unknown; replyTo?: unknown };
         if (msg.content !== undefined && typeof msg.content !== "string") return true;
+        if (msg.replyTo !== undefined && typeof msg.replyTo !== "string") return true;
         const hasText = typeof msg.content === "string" && msg.content.trim().length > 0;
         const hasAtts = Array.isArray(msg.attachments) && msg.attachments.length > 0;
         return !hasText && !hasAtts;
@@ -94,9 +113,12 @@ export async function POST(req: NextRequest) {
   const sideChat = body.sideChat === true;
   const mainMessages: ChatMessage[] = Array.isArray(body.mainMessages)
     ? body.mainMessages.map(
-        (m: { role: string; content?: string; attachments?: { name?: string }[] }) => ({
+        (m: { role: string; content?: string; attachments?: { name?: string }[]; replyTo?: string }) => ({
           role: m.role === "assistant" ? "assistant" : "user",
           content:
+            (typeof m.replyTo === "string" && m.replyTo.trim()
+              ? `[Replying to: "${m.replyTo.trim()}"] `
+              : "") +
             (typeof m.content === "string" && m.content.trim() ? m.content : "See attached.") +
             (Array.isArray(m.attachments) && m.attachments.length
               ? ` [attached: ${m.attachments.map((a) => a?.name ?? "file").join(", ")}]`

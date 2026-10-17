@@ -31,8 +31,12 @@ test("home data renders from DB when authenticated", async ({ page, context }) =
   await expect(page.getByText(/minutes in/)).toBeVisible();
   await expect(page.getByText(/minutes left/)).toBeVisible();
 
-  // Verify later today items from DB
-  await expect(page.getByText("Walk, no phone")).toBeVisible();
+  // Verify later today items from DB. The seed plants this block +75
+  // minutes out — run late in the evening it lands past midnight and the
+  // section shows its empty state instead.
+  await expect(
+    page.getByText("Walk, no phone").or(page.getByText("nothing else today."))
+  ).toBeVisible();
 
   // Verify spending from DB
   await expect(page.getByText("Eating out")).toBeVisible();

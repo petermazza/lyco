@@ -1914,3 +1914,64 @@ test.describe.serial("side chat", () => {
     await ctx.dispose();
   });
 });
+
+// ─── Chat replyTo (quote-a-sentence replies) ─────────────────
+// replyTo carries the quoted sentence or paragraph a user message is
+// replying to. It must be a non-empty string within bounds.
+
+test.describe.serial("chat replyTo", () => {
+  test("rejects malformed replyTo values with a 400", async () => {
+    const ctx = await loginCtx(`replyto-bad-${Date.now()}@lyco.test`);
+    const badValues: unknown[] = [
+      123,
+      { quote: "x" },
+      ["x"],
+      "",
+      "   ",
+      "x".repeat(2001),
+      true,
+    ];
+    for (const replyTo of badValues) {
+      const res = await ctx.post(`${BASE}/api/chat`, {
+        data: {
+          messages: [{ role: "user", content: "my reply", replyTo }],
+        },
+      });
+      expect(res.status(), JSON.stringify(replyTo).slice(0, 60)).toBe(400);
+    }
+    await ctx.dispose();
+  });
+
+  test("rejects a non-string replyTo in mainMessages", async () => {
+    const ctx = await loginCtx(`replyto-main-${Date.now()}@lyco.test`);
+    const res = await ctx.post(`${BASE}/api/chat`, {
+      data: {
+        sideChat: true,
+        mainMessages: [{ role: "user", content: "hi", replyTo: 42 }],
+        messages: [{ role: "user", content: "follow up" }],
+      },
+    });
+    expect(res.status()).toBe(400);
+    await ctx.dispose();
+  });
+
+  test("a valid replyTo is accepted and the quote reaches the model", async () => {
+    const ctx = await loginCtx(`replyto-ok-${Date.now()}@lyco.test`);
+    const res = await ctx.post(`${BASE}/api/chat`, {
+      data: {
+        messages: [
+          { role: "assistant", content: "Try out the brass section first. Or maybe the woodwinds." },
+          {
+            role: "user",
+            content: "Which section did you suggest first? Answer with the section name only.",
+            replyTo: "Try out the brass section first.",
+          },
+        ],
+      },
+    });
+    expect(res.status()).toBe(200);
+    const body = await res.json();
+    expect(body.text.toLowerCase()).toContain("brass");
+    await ctx.dispose();
+  });
+});
