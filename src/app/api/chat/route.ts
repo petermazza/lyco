@@ -9,8 +9,16 @@ export async function POST(req: NextRequest) {
   }
 
   const body = await req.json().catch(() => null);
-  if (!body?.messages || !Array.isArray(body.messages)) {
+  if (!body?.messages || !Array.isArray(body.messages) || body.messages.length === 0) {
     return NextResponse.json({ error: "messages array is required" }, { status: 400 });
+  }
+
+  const malformed = body.messages.some(
+    (m: unknown) =>
+      !m || typeof m !== "object" || typeof (m as { content?: unknown }).content !== "string" || !(m as { content: string }).content.trim()
+  );
+  if (malformed) {
+    return NextResponse.json({ error: "Each message must have non-empty string content" }, { status: 400 });
   }
 
   const messages: ChatMessage[] = body.messages.map((m: { role: string; content: string }) => ({

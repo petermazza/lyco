@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/session";
 import { query } from "@/lib/db";
+import { isUUID } from "@/lib/tools";
 
 export async function POST(
   _req: NextRequest,
@@ -12,6 +13,9 @@ export async function POST(
   }
 
   const { id } = await params;
+  if (!isUUID(id)) {
+    return NextResponse.json({ error: "Block not found or already completed" }, { status: 404 });
+  }
 
   // Mark the block as done — scoped to user_id
   const rows = await query<{ id: string }>(

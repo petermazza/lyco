@@ -3,6 +3,9 @@ import { execSync } from "child_process";
 import { readFileSync } from "fs";
 import crypto from "crypto";
 import pg from "pg";
+import { executeTools } from "../src/lib/tool-executor";
+import { validateToolCall } from "../src/lib/tools";
+import { setSecret, deleteSecret } from "../src/lib/secrets";
 
 const BASE = "http://localhost:3001";
 
@@ -21,6 +24,12 @@ function envVar(name: string): string {
   return match ? match[1] : "";
 }
 
+// In-process helpers (tool executor, secrets store) read these from
+// process.env at call time — point them at the same settings file the
+// dev server uses.
+process.env.DATABASE_URL ||= dbUrl();
+process.env.AUTH_SECRET ||= envVar("AUTH_SECRET") || "dev-secret";
+
 async function withDb<T>(fn: (c: pg.Client) => Promise<T>): Promise<T> {
   const client = new pg.Client({ connectionString: dbUrl() });
   await client.connect();
@@ -29,6 +38,11 @@ async function withDb<T>(fn: (c: pg.Client) => Promise<T>): Promise<T> {
   } finally {
     await client.end();
   }
+}
+
+async function userIdOf(ctx: Awaited<ReturnType<typeof apiRequest.newContext>>): Promise<string> {
+  const me = await (await ctx.get(`${BASE}/api/auth/me`)).json();
+  return me.user.id;
 }
 
 // ─── Auth API: request-link ──────────────────────────────────
@@ -930,6 +944,696 @@ test.describe.serial("reminder sweep", () => {
       (await c.query(`SELECT reminder_emails FROM users WHERE id = $1`, [uid])).rows[0].reminder_emails
     );
     expect(flag).toBe(true);
+    await ctx.dispose();
+  });
+});
+
+// ─── Home API contract ───────────────────────────────────────
+
+test.describe.serial("GET /api/home", () => {
+  test("returns 401 without a session", async () => {
+    const ctx = await apiRequest.newContext();
+    const res = await ctx.get(`${BASE}/api/home`);
+    expect(res.status()).toBe(401);
+    await ctx.dispose();
+  });
+
+  test("a brand-new user gets an empty home", async () => {
+    const ctx = await loginCtx(`home-empty-${Date.now()}@lyco.test`);
+    const res = await ctx.get(`${BASE}/api/home`);
+    expect(res.status()).toBe(200);
+    const body = await res.json();
+    expect(body.hasGoals).toBe(false);
+    expect(body.currentBlock).toBeNull();
+    expect(body.laterToday).toEqual([]);
+    expect(body.earlier).toEqual([]);
+    expect(body.spending).toEqual([]);
+    expect(body.upcoming).toEqual([]);
+    expect(body.kept).toBe(0);
+    expect(body.total).toBe(0);
+    await ctx.dispose();
+  });
+
+  test("the seeded user gets every section with real values", async () => {
+    execSync("npm run db:reset", { stdio: "pipe", cwd: process.cwd() });
+    const ctx = await loginCtx("sam@lyco.test");
+    const res = await ctx.get(`${BASE}/api/home`);
+    expect(res.status()).toBe(200);
+    const body = await res.json();
+
+    expect(body.hasGoals).toBe(true);
+    expect(typeof body.greeting).toBe("string");
+    expect(typeof body.dateLabel).toBe("string");
+    expect(typeof body.calendarConnected).toBe("boolean");
+
+    expect(body.currentBlock.title).toBe("Draft the SimpleFIN adapter");
+    expect(body.currentBlock.meta).toContain("90 minutes");
+    expect(body.currentBlock.left).toMatch(/minutes left/);
+
+    // The seed plants three blocks at +75/+120/+180 min — late in the day
+    // some land past midnight and aren't "later today" anymore.
+    expect(body.laterToday.length).toBeGreaterThanOrEqual(1);
+    const laterTitles = body.laterToday.map((b: { title: string }) => b.title);
+    const seeded = ["Walk, no phone", "Write the weekly digest prompt", "Call Dad"];
+    expect(laterTitles.some((t: string) => seeded.includes(t))).toBe(true);
+
+    const eating = body.spending.find((s: { label: string }) => s.label === "Eating out");
+    const rideshare = body.spending.find((s: { label: string }) => s.label === "Rideshare");
+    expect(eating.figure).toBe("$186 of $240");
+    expect(rideshare.figure).toBe("$92 of $80");
+    expect(rideshare.note).toContain("past the target you set");
+    expect(eating.markerLeft).toMatch(/%$/);
+
+    const mom = body.upcoming.find((o: { title: string }) => o.title === "Mom's birthday");
+    // The seed writes CURRENT_DATE + 12 on the DB server's clock; the app
+    // counts days on the user's clock. Compute the expected gap the same
+    // way the app does instead of assuming the two agree.
+    const storedDate = await withDb(async (c) =>
+      (await c.query(
+        `SELECT o.date::text AS d FROM occasions o
+         JOIN users u ON u.id = o.user_id
+         WHERE u.email = 'sam@lyco.test' AND o.title = 'Mom''s birthday'`
+      )).rows[0].d as string
+    );
+    const now = new Date();
+    const expectedDays = Math.round(
+      (Date.parse(`${storedDate}T00:00:00Z`) - Date.UTC(now.getFullYear(), now.getMonth(), now.getDate())) / 86400000
+    );
+    expect(mom.daysAway).toBe(expectedDays);
+    expect(mom.note).toContain("ceramics class");
+
+    // The seeded history spreads across day boundaries; near the start of a
+    // month some of it lands in last month. Compare against the same count
+    // the app computes rather than assuming all of it is in-month.
+    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+    const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+    const expectedRatio = await withDb(async (c) =>
+      (await c.query(
+        `SELECT COUNT(*) FILTER (WHERE status = 'done') AS kept, COUNT(*) AS total
+         FROM blocks b JOIN users u ON u.id = b.user_id
+         WHERE u.email = 'sam@lyco.test' AND scheduled_at >= $1 AND scheduled_at < $2`,
+        [monthStart, monthEnd]
+      )).rows[0]
+    );
+    expect(body.total).toBe(parseInt(expectedRatio.total, 10));
+    expect(body.kept).toBe(parseInt(expectedRatio.kept, 10));
+    await ctx.dispose();
+  });
+});
+
+// ─── Blocks API: done ────────────────────────────────────────
+
+test.describe.serial("POST /api/blocks/[id]/done", () => {
+  test("returns 401 without a session", async () => {
+    const ctx = await apiRequest.newContext();
+    const res = await ctx.post(`${BASE}/api/blocks/00000000-0000-0000-0000-000000000000/done`, { data: {} });
+    expect(res.status()).toBe(401);
+    await ctx.dispose();
+  });
+
+  test("returns 404 for an unknown block", async () => {
+    const ctx = await loginCtx(`done-404-${Date.now()}@lyco.test`);
+    const res = await ctx.post(`${BASE}/api/blocks/00000000-0000-0000-0000-000000000000/done`, { data: {} });
+    expect(res.status()).toBe(404);
+    await ctx.dispose();
+  });
+
+  test("marks a scheduled block done, and refuses a second time", async () => {
+    const ctx = await loginCtx(`done-twice-${Date.now()}@lyco.test`);
+    const start = new Date(Date.now() + 2 * 3600000);
+    const conf = await ctx.post(`${BASE}/api/schedule/confirm`, {
+      data: {
+        goalTitle: "G",
+        slots: [{ start: start.toISOString(), durationMinutes: 45, title: "Later block" }],
+      },
+    });
+    const { blocks } = await conf.json();
+    const id = blocks[0].id;
+
+    const first = await ctx.post(`${BASE}/api/blocks/${id}/done`, { data: {} });
+    expect(first.status()).toBe(200);
+
+    const second = await ctx.post(`${BASE}/api/blocks/${id}/done`, { data: {} });
+    expect(second.status()).toBe(404);
+    await ctx.dispose();
+  });
+});
+
+// ─── Blocks API: move (all targets) ──────────────────────────
+
+test.describe.serial("POST /api/blocks/[id]/move", () => {
+  test("returns 401 without a session", async () => {
+    const ctx = await apiRequest.newContext();
+    const res = await ctx.post(`${BASE}/api/blocks/00000000-0000-0000-0000-000000000000/move`, {
+      data: { target: "drop" },
+    });
+    expect(res.status()).toBe(401);
+    await ctx.dispose();
+  });
+
+  test("returns 400 for missing or unknown targets", async () => {
+    const ctx = await loginCtx(`move-bad-${Date.now()}@lyco.test`);
+    const start = new Date(Date.now() - 5 * 60000);
+    const conf = await ctx.post(`${BASE}/api/schedule/confirm`, {
+      data: {
+        goalTitle: "G",
+        slots: [{ start: start.toISOString(), durationMinutes: 30, title: "Movable" }],
+      },
+    });
+    const { blocks } = await conf.json();
+
+    const missing = await ctx.post(`${BASE}/api/blocks/${blocks[0].id}/move`, { data: {} });
+    expect(missing.status()).toBe(400);
+
+    const invalid = await ctx.post(`${BASE}/api/blocks/${blocks[0].id}/move`, { data: { target: "next_year" } });
+    expect(invalid.status()).toBe(400);
+    await ctx.dispose();
+  });
+
+  test("later_today lands at 6:45 pm today or tomorrow in the user's zone", async () => {
+    const ctx = await loginCtx(`move-later-${Date.now()}@lyco.test`);
+    await ctx.post(`${BASE}/api/user/timezone`, { data: { timezone: "Pacific/Kiritimati" } });
+    const start = new Date(Date.now() - 5 * 60000);
+    const conf = await ctx.post(`${BASE}/api/schedule/confirm`, {
+      data: {
+        goalTitle: "G",
+        slots: [{ start: start.toISOString(), durationMinutes: 30, title: "Move me" }],
+      },
+    });
+    const { blocks } = await conf.json();
+
+    const res = await ctx.post(`${BASE}/api/blocks/${blocks[0].id}/move`, {
+      data: { target: "later_today" },
+    });
+    expect(res.status()).toBe(200);
+    const body = await res.json();
+    expect(body.message).toContain("moved to");
+
+    const stored = await withDb(async (c) =>
+      (await c.query(`SELECT scheduled_at FROM blocks WHERE id = $1`, [blocks[0].id])).rows[0].scheduled_at
+    );
+    const local = new Intl.DateTimeFormat("en-US", {
+      timeZone: "Pacific/Kiritimati", hour: "numeric", minute: "2-digit", hour12: false,
+    }).format(new Date(stored));
+    expect(local).toBe("18:45");
+    await ctx.dispose();
+  });
+
+  test("tomorrow_morning lands at 9:00 am the next day in the user's zone", async () => {
+    const ctx = await loginCtx(`move-tom-${Date.now()}@lyco.test`);
+    await ctx.post(`${BASE}/api/user/timezone`, { data: { timezone: "Pacific/Kiritimati" } });
+    const start = new Date(Date.now() - 5 * 60000);
+    const conf = await ctx.post(`${BASE}/api/schedule/confirm`, {
+      data: {
+        goalTitle: "G",
+        slots: [{ start: start.toISOString(), durationMinutes: 30, title: "Move me too" }],
+      },
+    });
+    const { blocks } = await conf.json();
+
+    const res = await ctx.post(`${BASE}/api/blocks/${blocks[0].id}/move`, {
+      data: { target: "tomorrow_morning" },
+    });
+    expect(res.status()).toBe(200);
+    const body = await res.json();
+    expect(body.message).toContain("moved to tomorrow");
+
+    const stored = await withDb(async (c) =>
+      (await c.query(`SELECT scheduled_at FROM blocks WHERE id = $1`, [blocks[0].id])).rows[0].scheduled_at
+    );
+    const parts = new Intl.DateTimeFormat("en-US", {
+      timeZone: "Pacific/Kiritimati", year: "numeric", month: "2-digit", day: "2-digit",
+      hour: "numeric", minute: "2-digit", hour12: false,
+    }).formatToParts(new Date(stored));
+    const get = (t: string) => +(parts.find((p) => p.type === t)!.value);
+    expect(get("hour")).toBe(9);
+    expect(get("minute")).toBe(0);
+    const nowParts = new Intl.DateTimeFormat("en-US", {
+      timeZone: "Pacific/Kiritimati", year: "numeric", month: "2-digit", day: "2-digit",
+    }).formatToParts(new Date());
+    const today = new Date(Date.UTC(+nowParts.find((p) => p.type === "year")!.value,
+      +nowParts.find((p) => p.type === "month")!.value - 1,
+      +nowParts.find((p) => p.type === "day")!.value));
+    const storedDay = new Date(Date.UTC(get("year"), get("month") - 1, get("day")));
+    expect(storedDay.getTime() - today.getTime()).toBe(86400000);
+    await ctx.dispose();
+  });
+
+  test("drop sets the block status to dropped", async () => {
+    const ctx = await loginCtx(`move-drop-${Date.now()}@lyco.test`);
+    const start = new Date(Date.now() - 5 * 60000);
+    const conf = await ctx.post(`${BASE}/api/schedule/confirm`, {
+      data: {
+        goalTitle: "G",
+        slots: [{ start: start.toISOString(), durationMinutes: 30, title: "Drop me" }],
+      },
+    });
+    const { blocks } = await conf.json();
+
+    const res = await ctx.post(`${BASE}/api/blocks/${blocks[0].id}/move`, { data: { target: "drop" } });
+    expect(res.status()).toBe(200);
+    const body = await res.json();
+    expect(body.message).toContain("dropped");
+
+    const status = await withDb(async (c) =>
+      (await c.query(`SELECT status FROM blocks WHERE id = $1`, [blocks[0].id])).rows[0].status
+    );
+    expect(status).toBe("dropped");
+    await ctx.dispose();
+  });
+
+  test("a done block cannot be moved, extended, or dropped again", async () => {
+    const ctx = await loginCtx(`move-done-${Date.now()}@lyco.test`);
+    const start = new Date(Date.now() - 5 * 60000);
+    const conf = await ctx.post(`${BASE}/api/schedule/confirm`, {
+      data: {
+        goalTitle: "G",
+        slots: [{ start: start.toISOString(), durationMinutes: 30, title: "Closed" }],
+      },
+    });
+    const { blocks } = await conf.json();
+    await ctx.post(`${BASE}/api/blocks/${blocks[0].id}/done`, { data: {} });
+
+    for (const target of ["later_today", "tomorrow_morning", "add_15", "drop"]) {
+      const res = await ctx.post(`${BASE}/api/blocks/${blocks[0].id}/move`, { data: { target } });
+      expect(res.status(), `move ${target} on a done block`).toBe(404);
+    }
+
+    const row = await withDb(async (c) =>
+      (await c.query(`SELECT status, duration_minutes FROM blocks WHERE id = $1`, [blocks[0].id])).rows[0]
+    );
+    expect(row.status).toBe("done");
+    expect(row.duration_minutes).toBe(30);
+    await ctx.dispose();
+  });
+});
+
+// ─── Calendar endpoints ──────────────────────────────────────
+
+test.describe.serial("calendar endpoints", () => {
+  test("GET /api/calendar/status reflects the stored connection", async () => {
+    const ctx = await apiRequest.newContext();
+    expect((await ctx.get(`${BASE}/api/calendar/status`)).status()).toBe(401);
+    await ctx.dispose();
+
+    const email = `cal-status-${Date.now()}@lyco.test`;
+    const auth = await loginCtx(email);
+    const uid = await userIdOf(auth);
+
+    let res = await auth.get(`${BASE}/api/calendar/status`);
+    expect((await res.json()).connected).toBe(false);
+
+    await setSecret(uid, "google_calendar_refresh_token", "fake-refresh-token");
+    res = await auth.get(`${BASE}/api/calendar/status`);
+    expect((await res.json()).connected).toBe(true);
+
+    await deleteSecret(uid, "google_calendar_refresh_token");
+    await auth.dispose();
+  });
+
+  test("GET /api/calendar/connect returns a Google auth URL", async () => {
+    const ctx = await apiRequest.newContext();
+    expect((await ctx.get(`${BASE}/api/calendar/connect`)).status()).toBe(401);
+    await ctx.dispose();
+
+    const auth = await loginCtx(`cal-connect-${Date.now()}@lyco.test`);
+    const res = await auth.get(`${BASE}/api/calendar/connect`);
+    expect(res.status()).toBe(200);
+    const body = await res.json();
+    expect(body.authUrl).toContain("accounts.google.com");
+    expect(decodeURIComponent(body.authUrl)).toContain("redirect_uri=http://localhost:3001/api/calendar/callback");
+    await auth.dispose();
+  });
+
+  test("GET /api/calendar/callback handles every failure path", async () => {
+    const anon = await apiRequest.newContext();
+    const unauth = await anon.get(`${BASE}/api/calendar/callback?code=x`, { maxRedirects: 0 });
+    expect([302, 307]).toContain(unauth.status());
+    expect(unauth.headers()["location"]).toContain("error=unauthorized");
+    await anon.dispose();
+
+    const auth = await loginCtx(`cal-cb-${Date.now()}@lyco.test`);
+
+    const denied = await auth.get(`${BASE}/api/calendar/callback?error=access_denied`, { maxRedirects: 0 });
+    expect(denied.headers()["location"]).toContain("error=access_denied");
+
+    const noCode = await auth.get(`${BASE}/api/calendar/callback`, { maxRedirects: 0 });
+    expect(noCode.headers()["location"]).toContain("error=no_code");
+
+    const badCode = await auth.get(`${BASE}/api/calendar/callback?code=not-a-real-code`, { maxRedirects: 0 });
+    expect(badCode.headers()["location"]).toContain("error=oauth_failed");
+    await auth.dispose();
+  });
+});
+
+// ─── Legacy weekday/time slot parsing ────────────────────────
+
+test.describe.serial("POST /api/schedule/confirm legacy slots", () => {
+  test("accepts a { day, time } slot and books the next occurrence", async () => {
+    const ctx = await loginCtx(`legacy-${Date.now()}@lyco.test`);
+    const res = await ctx.post(`${BASE}/api/schedule/confirm`, {
+      data: {
+        goalTitle: "Legacy",
+        slots: [{ day: "Tuesday", time: "7:00 – 8:30 pm", durationMinutes: 90, title: "Evening session" }],
+      },
+    });
+    expect(res.status()).toBe(200);
+    const body = await res.json();
+    expect(body.blocks.length).toBe(1);
+    const start = new Date(body.blocks[0].scheduledAt);
+    expect(start.getDay()).toBe(2); // Tuesday
+    expect(start.getTime()).toBeGreaterThan(Date.now());
+    await ctx.dispose();
+  });
+});
+
+// ─── Tool validation and execution ───────────────────────────
+// Drives the tool layer directly — same code the chat route runs —
+// against a fresh test user per test.
+
+test.describe.serial("validateToolCall", () => {
+  const bad = (name: string, args: Record<string, unknown>) =>
+    validateToolCall({ name: name as never, arguments: args });
+
+  test("rejects bad arguments for every tool", () => {
+    expect(bad("create_goal", {}).ok).toBe(false);
+    expect(bad("create_goal", { title: "x", deadline: "next week" }).ok).toBe(false);
+    expect(bad("update_goal", { goal_id: "nope" }).ok).toBe(false);
+    expect(bad("update_goal", { goal_id: crypto.randomUUID(), status: "archived" }).ok).toBe(false);
+    expect(bad("schedule_block", { title: "x", scheduled_at: "tomorrow", duration_minutes: 60 }).ok).toBe(false);
+    expect(bad("schedule_block", { title: "x", scheduled_at: "2030-01-01T10:00", duration_minutes: 4 }).ok).toBe(false);
+    expect(bad("schedule_block", { title: "x", scheduled_at: "2030-01-01T10:00", duration_minutes: 481 }).ok).toBe(false);
+    expect(bad("complete_block", { block_id: "not-uuid" }).ok).toBe(false);
+    expect(bad("move_block", { block_id: crypto.randomUUID(), target: "next_week" }).ok).toBe(false);
+    expect(bad("update_block", { block_id: crypto.randomUUID(), title: "  " }).ok).toBe(false);
+    expect(bad("create_spending_goal", { label: "eating out", monthly_amount: -5 }).ok).toBe(false);
+    expect(bad("log_spending", { spending_goal_label: "x", amount: 0 }).ok).toBe(false);
+    expect(bad("log_spending", { spending_goal_label: "x", amount: 5, date: "yesterday" }).ok).toBe(false);
+    expect(bad("add_occasion", { title: "x", date: "March 3" }).ok).toBe(false);
+    expect(bad("nonexistent_tool", {}).ok).toBe(false);
+  });
+
+  test("accepts well-formed arguments", () => {
+    const ok = (name: string, args: Record<string, unknown>) =>
+      validateToolCall({ name: name as never, arguments: args });
+    expect(ok("create_goal", { title: "Run a 5k" }).ok).toBe(true);
+    expect(ok("create_goal", { title: "Run a 5k", deadline: "2030-01-01", cadence: "2x a week" }).ok).toBe(true);
+    expect(ok("update_goal", { goal_id: crypto.randomUUID(), status: "paused" }).ok).toBe(true);
+    expect(ok("update_goal", { goal_id: crypto.randomUUID(), deadline: null }).ok).toBe(true);
+    expect(ok("schedule_block", { title: "x", scheduled_at: "2030-01-01T10:00", duration_minutes: 90 }).ok).toBe(true);
+    expect(ok("complete_block", { block_id: crypto.randomUUID() }).ok).toBe(true);
+    expect(ok("move_block", { block_id: crypto.randomUUID(), target: "drop" }).ok).toBe(true);
+    expect(ok("update_block", { block_id: crypto.randomUUID(), title: "new title" }).ok).toBe(true);
+    expect(ok("create_spending_goal", { label: "groceries", monthly_amount: 300 }).ok).toBe(true);
+    expect(ok("log_spending", { spending_goal_label: "groceries", amount: 12.5 }).ok).toBe(true);
+    expect(ok("add_occasion", { title: "trip", date: "2030-06-01" }).ok).toBe(true);
+  });
+});
+
+test.describe.serial("executeTools", () => {
+  test("goal lifecycle: create, update, pause, complete", async () => {
+    const ctx = await loginCtx(`tools-goal-${Date.now()}@lyco.test`);
+    const uid = await userIdOf(ctx);
+
+    const created = await executeTools(
+      [{ name: "create_goal", arguments: { title: "Tool goal", deadline: "2030-01-15", cadence: "weekly" } }],
+      uid
+    );
+    expect(created.results[0].success).toBe(true);
+    const goalId = created.results[0].data!.goal_id as string;
+    expect(created.rowChanges[0].table).toBe("goals");
+
+    const updated = await executeTools(
+      [{ name: "update_goal", arguments: { goal_id: goalId, title: "Renamed goal", cadence: "2x a week" } }],
+      uid
+    );
+    expect(updated.results[0].success).toBe(true);
+
+    const row = await withDb(async (c) =>
+      (await c.query(`SELECT title, cadence FROM goals WHERE id = $1`, [goalId])).rows[0]
+    );
+    expect(row.title).toBe("Renamed goal");
+    expect(row.cadence).toBe("2x a week");
+
+    const paused = await executeTools(
+      [{ name: "update_goal", arguments: { goal_id: goalId, status: "paused" } }],
+      uid
+    );
+    expect(paused.results[0].success).toBe(true);
+
+    const done = await executeTools(
+      [{ name: "update_goal", arguments: { goal_id: goalId, status: "done" } }],
+      uid
+    );
+    expect(done.results[0].success).toBe(true);
+
+    const noFields = await executeTools(
+      [{ name: "update_goal", arguments: { goal_id: goalId } }],
+      uid
+    );
+    expect(noFields.results[0].success).toBe(false);
+    expect(noFields.results[0].message).toContain("No fields");
+
+    const foreign = await executeTools(
+      [{ name: "update_goal", arguments: { goal_id: crypto.randomUUID(), title: "nope" } }],
+      uid
+    );
+    expect(foreign.results[0].success).toBe(false);
+    await ctx.dispose();
+  });
+
+  test("block lifecycle via tools: schedule, rename, extend, complete", async () => {
+    const ctx = await loginCtx(`tools-block-${Date.now()}@lyco.test`);
+    const uid = await userIdOf(ctx);
+
+    const sched = await executeTools(
+      [{
+        name: "schedule_block",
+        arguments: {
+          title: "Tool block",
+          scheduled_at: new Date(Date.now() - 5 * 60000).toISOString(),
+          duration_minutes: 60,
+        },
+      }],
+      uid
+    );
+    expect(sched.results[0].success).toBe(true);
+    const blockId = sched.results[0].data!.block_id as string;
+
+    const renamed = await executeTools(
+      [{ name: "update_block", arguments: { block_id: blockId, title: "Better first step" } }],
+      uid
+    );
+    expect(renamed.results[0].success).toBe(true);
+
+    const extended = await executeTools(
+      [{ name: "move_block", arguments: { block_id: blockId, target: "add_15" } }],
+      uid
+    );
+    expect(extended.results[0].success).toBe(true);
+    const row = await withDb(async (c) =>
+      (await c.query(`SELECT duration_minutes FROM blocks WHERE id = $1`, [blockId])).rows[0]
+    );
+    expect(row.duration_minutes).toBe(75);
+
+    const completed = await executeTools(
+      [{ name: "complete_block", arguments: { block_id: blockId } }],
+      uid
+    );
+    expect(completed.results[0].success).toBe(true);
+
+    // Closed blocks refuse further tool changes
+    const again = await executeTools(
+      [{ name: "complete_block", arguments: { block_id: blockId } }],
+      uid
+    );
+    expect(again.results[0].success).toBe(false);
+    const renamedClosed = await executeTools(
+      [{ name: "update_block", arguments: { block_id: blockId, title: "too late" } }],
+      uid
+    );
+    expect(renamedClosed.results[0].success).toBe(false);
+    const movedClosed = await executeTools(
+      [{ name: "move_block", arguments: { block_id: blockId, target: "drop" } }],
+      uid
+    );
+    expect(movedClosed.results[0].success).toBe(false);
+    await ctx.dispose();
+  });
+
+  test("move_block later_today and tomorrow_morning reschedule the block", async () => {
+    const ctx = await loginCtx(`tools-move-${Date.now()}@lyco.test`);
+    const uid = await userIdOf(ctx);
+
+    const sched = await executeTools(
+      [{
+        name: "schedule_block",
+        arguments: {
+          title: "Reschedulable",
+          scheduled_at: new Date(Date.now() - 5 * 60000).toISOString(),
+          duration_minutes: 45,
+        },
+      }],
+      uid
+    );
+    const blockId = sched.results[0].data!.block_id as string;
+
+    const later = await executeTools(
+      [{ name: "move_block", arguments: { block_id: blockId, target: "later_today" } }],
+      uid
+    );
+    expect(later.results[0].success).toBe(true);
+    let stored = await withDb(async (c) =>
+      new Date((await c.query(`SELECT scheduled_at FROM blocks WHERE id = $1`, [blockId])).rows[0].scheduled_at)
+    );
+    expect(stored.getTime()).toBeGreaterThan(Date.now());
+
+    const tomorrow = await executeTools(
+      [{ name: "move_block", arguments: { block_id: blockId, target: "tomorrow_morning" } }],
+      uid
+    );
+    expect(tomorrow.results[0].success).toBe(true);
+    stored = await withDb(async (c) =>
+      new Date((await c.query(`SELECT scheduled_at FROM blocks WHERE id = $1`, [blockId])).rows[0].scheduled_at)
+    );
+    expect(stored.getTime()).toBeGreaterThan(Date.now() + 3600000);
+
+    const dropped = await executeTools(
+      [{ name: "move_block", arguments: { block_id: blockId, target: "drop" } }],
+      uid
+    );
+    expect(dropped.results[0].success).toBe(true);
+    const status = await withDb(async (c) =>
+      (await c.query(`SELECT status FROM blocks WHERE id = $1`, [blockId])).rows[0].status
+    );
+    expect(status).toBe("dropped");
+    await ctx.dispose();
+  });
+
+  test("spending tools: target creation, dedupe, and logging", async () => {
+    const ctx = await loginCtx(`tools-spend-${Date.now()}@lyco.test`);
+    const uid = await userIdOf(ctx);
+
+    const created = await executeTools(
+      [{ name: "create_spending_goal", arguments: { label: "coffee", monthly_amount: 50 } }],
+      uid
+    );
+    expect(created.results[0].success).toBe(true);
+    const sgId = created.results[0].data!.spending_goal_id as string;
+    const cents = await withDb(async (c) =>
+      (await c.query(`SELECT budget_cents FROM spending_goals WHERE id = $1`, [sgId])).rows[0].budget_cents
+    );
+    expect(cents).toBe(5000);
+
+    // Same label, different case — returns the existing target, no duplicate
+    const dupe = await executeTools(
+      [{ name: "create_spending_goal", arguments: { label: "Coffee", monthly_amount: 999 } }],
+      uid
+    );
+    expect(dupe.results[0].success).toBe(true);
+    expect(dupe.results[0].data!.spending_goal_id).toBe(sgId);
+    const count = await withDb(async (c) =>
+      (await c.query(`SELECT COUNT(*) AS n FROM spending_goals WHERE user_id = $1`, [uid])).rows[0].n
+    );
+    expect(parseInt(count, 10)).toBe(1);
+
+    const logged = await executeTools(
+      [{ name: "log_spending", arguments: { spending_goal_label: "COFFEE", amount: 4.75, description: "latte" } }],
+      uid
+    );
+    expect(logged.results[0].success).toBe(true);
+    const entry = await withDb(async (c) =>
+      (await c.query(`SELECT amount_cents, spent_at FROM spending_entries WHERE user_id = $1`, [uid])).rows[0]
+    );
+    expect(entry.amount_cents).toBe(475);
+
+    // Logging with an explicit date lands on that date
+    const dated = await executeTools(
+      [{ name: "log_spending", arguments: { spending_goal_label: "coffee", amount: 10, date: "2020-06-15" } }],
+      uid
+    );
+    expect(dated.results[0].success).toBe(true);
+
+    // Unknown target → helpful error naming the real ones
+    const unknown = await executeTools(
+      [{ name: "log_spending", arguments: { spending_goal_label: "yachts", amount: 5 } }],
+      uid
+    );
+    expect(unknown.results[0].success).toBe(false);
+    expect(unknown.results[0].message).toContain("coffee");
+    await ctx.dispose();
+  });
+
+  test("add_occasion stores the date and note", async () => {
+    const ctx = await loginCtx(`tools-occ-${Date.now()}@lyco.test`);
+    const uid = await userIdOf(ctx);
+
+    const res = await executeTools(
+      [{ name: "add_occasion", arguments: { title: "Anniversary", date: "2030-04-24", note: "book dinner" } }],
+      uid
+    );
+    expect(res.results[0].success).toBe(true);
+
+    const row = await withDb(async (c) =>
+      (await c.query(`SELECT title, note FROM occasions WHERE user_id = $1`, [uid])).rows[0]
+    );
+    expect(row.title).toBe("Anniversary");
+    expect(row.note).toBe("book dinner");
+    await ctx.dispose();
+  });
+
+  test("invalid calls report failure instead of throwing", async () => {
+    const ctx = await loginCtx(`tools-bad-${Date.now()}@lyco.test`);
+    const uid = await userIdOf(ctx);
+
+    const res = await executeTools(
+      [
+        { name: "create_goal", arguments: { title: "" } },
+        { name: "complete_block", arguments: { block_id: "not-a-uuid" } },
+      ],
+      uid
+    );
+    expect(res.results).toHaveLength(2);
+    expect(res.results[0].success).toBe(false);
+    expect(res.results[0].message).toContain("Validation failed");
+    expect(res.results[1].success).toBe(false);
+    await ctx.dispose();
+  });
+});
+
+// ─── Reminder sweep: 1-day occasion heads-up ─────────────────
+
+test.describe.serial("reminder sweep: 1-day occasion", () => {
+  test("an occasion tomorrow sends one heads-up, once", async () => {
+    const email = `remind-1day-${Date.now()}@lyco.test`;
+    const ctx = await loginCtx(email);
+    await ctx.post(`${BASE}/api/user/timezone`, { data: { timezone: "Pacific/Kiritimati" } });
+    const me = await (await ctx.get(`${BASE}/api/auth/me`)).json();
+
+    // Noon in Kiritimati; the occasion is "tomorrow" in that zone
+    const kiritimatiNoon = new Date();
+    kiritimatiNoon.setUTCHours(22, 0, 0, 0);
+    const parts = new Intl.DateTimeFormat("en-US", {
+      timeZone: "Pacific/Kiritimati", year: "numeric", month: "2-digit", day: "2-digit",
+    }).formatToParts(kiritimatiNoon);
+    const y = +(parts.find((p) => p.type === "year")!.value);
+    const m = +(parts.find((p) => p.type === "month")!.value);
+    const dd = +(parts.find((p) => p.type === "day")!.value);
+    const occasionDate = new Date(Date.UTC(y, m - 1, dd + 1)).toISOString().slice(0, 10);
+
+    await withDb(async (c) => {
+      await c.query(
+        `INSERT INTO occasions (user_id, title, date) VALUES ($1, $2, $3)`,
+        [me.user.id, "Tomorrow thing", occasionDate]
+      );
+    });
+
+    const sent = runRemind({ only: email, at: kiritimatiNoon });
+    expect(sent.filter((r) => r.kind === "occasion" && r.title === "Tomorrow thing")).toHaveLength(1);
+
+    // Same sweep again → the reminder row dedupes it
+    const again = runRemind({ only: email, at: kiritimatiNoon });
+    expect(again.filter((r) => r.title === "Tomorrow thing")).toHaveLength(0);
     await ctx.dispose();
   });
 });

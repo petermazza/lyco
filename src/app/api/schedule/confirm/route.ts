@@ -4,6 +4,7 @@ import { query } from "@/lib/db";
 import { isCalendarConnected, getProvider } from "@/lib/calendar/google";
 import { calendarRedirectUri } from "@/lib/app-url";
 import { resolveTimezone, nextWeekdayTime } from "@/lib/tz";
+import { isUUID } from "@/lib/tools";
 
 interface SlotInput {
   // Preferred: concrete ISO 8601 start. Legacy fallback: "Tuesday" + "7:00 – 8:30 pm".
@@ -24,7 +25,7 @@ interface ConfirmBody {
 // concrete start/end datetimes for the next occurrence of that weekday
 // in the user's timezone.
 function parseSlotToDates(tz: string, slot: SlotInput, now: Date): { start: Date; end: Date } | null {
-  if (slot.start) {
+  if (typeof slot.start === "string" && slot.start.trim()) {
     const start = new Date(slot.start);
     if (isNaN(start.getTime())) return null;
     return { start, end: new Date(start.getTime() + slot.durationMinutes * 60000) };
@@ -35,9 +36,10 @@ function parseSlotToDates(tz: string, slot: SlotInput, now: Date): { start: Date
     thursday: 4, friday: 5, saturday: 6,
   };
 
-  const dayName = (slot.day ?? "").toLowerCase().trim();
+  if (typeof slot.day !== "string" || typeof slot.time !== "string") return null;
+  const dayName = slot.day.toLowerCase().trim();
   const targetDay = dayMap[dayName];
-  if (targetDay === undefined || !slot.time) return null;
+  if (targetDay === undefined) return null;
 
   // Parse time string like "7:00 – 8:30 pm" or "9:30 – 11:00 am"
   const timeMatch = slot.time.match(/(\d{1,2}):(\d{2})\s*[–-]\s*(\d{1,2}):(\d{2})\s*(am|pm)/i);
@@ -74,12 +76,20 @@ export async function POST(req: NextRequest) {
   }
 
   const body = await req.json().catch(() => null) as ConfirmBody | null;
-  if (!body?.goalTitle || !body?.slots?.length) {
+  if (
+    typeof body?.goalTitle !== "string" ||
+    !body.goalTitle.trim() ||
+    !Array.isArray(body?.slots) ||
+    body.slots.length === 0
+  ) {
     return NextResponse.json({ error: "goalTitle and slots are required" }, { status: 400 });
   }
 
   // If a goalId was provided, verify it belongs to this user
   if (body.goalId) {
+    if (!isUUID(body.goalId)) {
+      return NextResponse.json({ error: "Goal not found" }, { status: 404 });
+    }
     const goals = await query<{ id: string }>(
       `SELECT id FROM goals WHERE id = $1 AND user_id = $2`,
       [body.goalId, user.userId]
@@ -98,8 +108,23 @@ export async function POST(req: NextRequest) {
   const errors: string[] = [];
 
   for (const slot of body.slots) {
-    const duration = typeof slot.durationMinutes === "number" && slot.durationMinutes > 0
-      ? Math.min(slot.durationMinutes, 480)
+    if (!slot || typeof slot.title !== "string" || !slot.title.trim() || slot.title.length > 200) {
+      errors.push("Invalid slot title");
+      continue;
+    }
+
+    // A provided duration must be a real positive number — NaN, Infinity,
+    // zero, negatives, and non-numbers are rejected rather than silently
+    // rewritten. A missing duration falls back to 90 (or the time range).
+    const rawDuration = slot.durationMinutes as unknown;
+    if (rawDuration !== undefined && rawDuration !== null) {
+      if (typeof rawDuration !== "number" || !Number.isFinite(rawDuration) || rawDuration <= 0) {
+        errors.push(`Invalid duration for "${slot.title.trim()}"`);
+        continue;
+      }
+    }
+    const duration = typeof rawDuration === "number"
+      ? Math.round(Math.min(rawDuration, 480))
       : 90;
 
     const dates = parseSlotToDates(tz, { ...slot, durationMinutes: duration }, now);
@@ -146,6 +171,13 @@ export async function POST(req: NextRequest) {
       scheduledAt: dates.start.toISOString(),
       calendarEventId,
     });
+  }
+
+  if (createdBlocks.length === 0) {
+    return NextResponse.json(
+      { error: errors[0] ?? "No valid slots", errors },
+      { status: 400 }
+    );
   }
 
   return NextResponse.json({

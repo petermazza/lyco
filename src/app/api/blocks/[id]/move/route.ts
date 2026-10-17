@@ -4,6 +4,7 @@ import { query } from "@/lib/db";
 import { isCalendarConnected, getProvider } from "@/lib/calendar/google";
 import { calendarRedirectUri } from "@/lib/app-url";
 import { resolveTimezone, nextLocalTime, tomorrowLocalTime, formatTimeTz } from "@/lib/tz";
+import { isUUID } from "@/lib/tools";
 
 type MoveTarget = "later_today" | "tomorrow_morning" | "add_15" | "drop";
 
@@ -17,6 +18,9 @@ export async function POST(
   }
 
   const { id } = await params;
+  if (!isUUID(id)) {
+    return NextResponse.json({ error: "Block not found" }, { status: 404 });
+  }
   const body = await req.json().catch(() => ({}));
   const target = body?.target as MoveTarget;
 
@@ -24,7 +28,8 @@ export async function POST(
     return NextResponse.json({ error: "Missing target" }, { status: 400 });
   }
 
-  // Fetch the block first — scoped to user_id
+  // Fetch the block first — scoped to user_id, and only open blocks
+  // can move. A done or dropped block stays put.
   const blocks = await query<{
     id: string;
     scheduled_at: Date;
@@ -32,7 +37,8 @@ export async function POST(
     calendar_event_id: string | null;
   }>(
     `SELECT id, scheduled_at, duration_minutes, calendar_event_id
-     FROM blocks WHERE id = $1 AND user_id = $2`,
+     FROM blocks WHERE id = $1 AND user_id = $2
+       AND status IN ('scheduled', 'running', 'missed')`,
     [id, user.userId]
   );
 
@@ -51,10 +57,16 @@ export async function POST(
       : null;
 
   if (target === "drop") {
-    await query(
-      `UPDATE blocks SET status = 'dropped' WHERE id = $1 AND user_id = $2`,
+    // The status check is repeated inside the UPDATE so a racing second
+    // request sees zero rows once the first has committed.
+    const dropped = await query<{ id: string }>(
+      `UPDATE blocks SET status = 'dropped' WHERE id = $1 AND user_id = $2
+         AND status IN ('scheduled', 'running', 'missed') RETURNING id`,
       [id, user.userId]
     );
+    if (!dropped[0]) {
+      return NextResponse.json({ error: "Block not found" }, { status: 404 });
+    }
     if (provider && block.calendar_event_id) {
       try {
         await provider.deleteEvent(block.calendar_event_id);
@@ -71,10 +83,14 @@ export async function POST(
     const newDuration = block.duration_minutes + 15;
     const newEnd = new Date(new Date(block.scheduled_at).getTime() + newDuration * 60000);
 
-    await query(
-      `UPDATE blocks SET duration_minutes = $1 WHERE id = $2 AND user_id = $3`,
+    const extended = await query<{ id: string }>(
+      `UPDATE blocks SET duration_minutes = $1 WHERE id = $2 AND user_id = $3
+         AND status IN ('scheduled', 'running', 'missed') RETURNING id`,
       [newDuration, id, user.userId]
     );
+    if (!extended[0]) {
+      return NextResponse.json({ error: "Block not found" }, { status: 404 });
+    }
 
     if (provider && block.calendar_event_id) {
       try {
@@ -99,10 +115,14 @@ export async function POST(
 
   const newEnd = new Date(newStart.getTime() + block.duration_minutes * 60000);
 
-  await query(
-    `UPDATE blocks SET scheduled_at = $1 WHERE id = $2 AND user_id = $3`,
+  const moved = await query<{ id: string }>(
+    `UPDATE blocks SET scheduled_at = $1 WHERE id = $2 AND user_id = $3
+       AND status IN ('scheduled', 'running', 'missed') RETURNING id`,
     [newStart, id, user.userId]
   );
+  if (!moved[0]) {
+    return NextResponse.json({ error: "Block not found" }, { status: 404 });
+  }
 
   if (provider && block.calendar_event_id) {
     try {

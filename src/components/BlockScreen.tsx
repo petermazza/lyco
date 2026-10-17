@@ -247,7 +247,7 @@ export function BlockScreen() {
 
   // ─── Loading / empty ───────────────────────────────────────
 
-  if (authed !== true || loadState === "loading") {
+  if (authed !== true || loadState !== "loaded") {
     return (
       <div className="mobile-shell" style={{ position: "relative", height: "100dvh", display: "flex", flexDirection: "column", overflow: "hidden" }}>
         <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center" }}>

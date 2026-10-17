@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/session";
 import { query } from "@/lib/db";
+import { isUUID } from "@/lib/tools";
 
 export async function PATCH(
   req: NextRequest,
@@ -12,11 +13,14 @@ export async function PATCH(
   }
 
   const { id } = await params;
+  if (!isUUID(id)) {
+    return NextResponse.json({ error: "Block not found" }, { status: 404 });
+  }
   const body = await req.json().catch(() => null);
   const title = typeof body?.title === "string" ? body.title.trim() : "";
 
-  if (!title) {
-    return NextResponse.json({ error: "title is required and must be a non-empty string" }, { status: 400 });
+  if (!title || title.length > 200) {
+    return NextResponse.json({ error: "title is required and must be a non-empty string under 200 characters" }, { status: 400 });
   }
 
   const rows = await query<{ id: string }>(

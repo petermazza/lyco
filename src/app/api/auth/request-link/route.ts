@@ -4,7 +4,7 @@ import { sendMagicLinkEmail } from "@/lib/email";
 
 export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => ({}));
-  const email = body?.email?.trim()?.toLowerCase();
+  const email = typeof body?.email === "string" ? body.email.trim().toLowerCase() : "";
 
   if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
     return NextResponse.json({ error: "Valid email required" }, { status: 400 });

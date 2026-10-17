@@ -1,10 +1,35 @@
 import { test, expect, type Page, request as apiRequest } from "@playwright/test";
 import { execSync } from "child_process";
+import { readFileSync } from "fs";
+import pg from "pg";
+import { executeTools } from "../src/lib/tool-executor";
+import { unsubscribeSignature } from "../src/lib/auth";
 
 const BASE = "http://localhost:3001";
 
+function envVar(name: string): string {
+  const env = readFileSync(".env.local", "utf-8");
+  const match = env.match(new RegExp(`^${name}=["']?(.+?)["']?\\s*$`, "m"));
+  return match ? match[1] : "";
+}
+process.env.DATABASE_URL ||= envVar("DATABASE_URL");
+process.env.AUTH_SECRET ||= envVar("AUTH_SECRET") || "dev-secret";
+
 async function reseed() {
   execSync("npm run db:reset", { stdio: "pipe", cwd: process.cwd() });
+}
+
+async function reminderEmailsOn(userId: string): Promise<boolean> {
+  const client = new pg.Client({ connectionString: envVar("DATABASE_URL") });
+  await client.connect();
+  try {
+    const rows = (await client.query(
+      `SELECT reminder_emails FROM users WHERE id = $1`, [userId]
+    )).rows;
+    return rows[0]?.reminder_emails === true;
+  } finally {
+    await client.end();
+  }
 }
 
 async function gotoHome(page: Page) {
@@ -38,7 +63,7 @@ async function gotoAuthenticated(page: Page, path: string) {
   await page.waitForTimeout(500);
 }
 
-async function gotoFreshUser(page: Page, path: string) {
+async function gotoFreshUser(page: Page, path: string): Promise<string> {
   const ctx = await apiRequest.newContext();
   const res = await ctx.post(`${BASE}/api/auth/request-link`, {
     data: { email: `fresh-${Date.now()}-${Math.random().toString(36).slice(2, 8)}@lyco.test` },
@@ -49,9 +74,24 @@ async function gotoFreshUser(page: Page, path: string) {
   await page.goto(body.link);
   await page.waitForLoadState("networkidle");
   await page.waitForTimeout(1500);
+  const me = await (await page.request.get(`${BASE}/api/auth/me`)).json();
+  const uid = me.user.id as string;
   await page.goto(path);
   await page.waitForLoadState("networkidle");
   await page.waitForTimeout(500);
+  return uid;
+}
+
+// Plants a block that ended `minsAgo` minutes ago so it sweeps to missed.
+async function plantMissedBlock(page: Page, title: string, minsAgo = 120) {
+  const start = new Date(Date.now() - minsAgo * 60000).toISOString();
+  const conf = await page.request.post(`${BASE}/api/schedule/confirm`, {
+    data: {
+      goalTitle: "Cleanup",
+      slots: [{ start, durationMinutes: 60, title }],
+    },
+  });
+  expect(conf.ok()).toBeTruthy();
 }
 
 // ─── Home screen: content ────────────────────────────────────
@@ -561,5 +601,267 @@ test.describe.serial("Still open from earlier", () => {
     await row.getByRole("button", { name: "drop" }).click();
     await expect(page.getByText("dropped. no explanation needed.")).toBeVisible();
     await expect(page.getByText(title)).not.toBeVisible();
+  });
+
+  test("done button marks the missed block kept and removes the row", async ({ page }) => {
+    const ctx = await apiRequest.newContext();
+    const res = await ctx.post(`${BASE}/api/auth/request-link`, {
+      data: { email: "sam@lyco.test" },
+    });
+    const body = await res.json();
+    await ctx.dispose();
+    await page.goto(body.link);
+    await page.waitForLoadState("networkidle");
+
+    const title = `MissedDone-${Date.now()}`;
+    await plantMissedBlock(page, title);
+
+    await page.goto("/");
+    await page.waitForLoadState("networkidle");
+
+    const row = page
+      .locator("div", { has: page.getByText(title, { exact: true }) })
+      .filter({ has: page.getByRole("button", { name: "done" }) })
+      .last();
+    await row.getByRole("button", { name: "done" }).click();
+    await expect(page.getByText("kept.")).toBeVisible();
+    await expect(page.getByText(title)).not.toBeVisible();
+  });
+
+  test("tomorrow button reschedules the missed block and removes the row", async ({ page }) => {
+    const ctx = await apiRequest.newContext();
+    const res = await ctx.post(`${BASE}/api/auth/request-link`, {
+      data: { email: "sam@lyco.test" },
+    });
+    const body = await res.json();
+    await ctx.dispose();
+    await page.goto(body.link);
+    await page.waitForLoadState("networkidle");
+
+    const title = `MissedTom-${Date.now()}`;
+    await plantMissedBlock(page, title);
+
+    await page.goto("/");
+    await page.waitForLoadState("networkidle");
+
+    const row = page
+      .locator("div", { has: page.getByText(title, { exact: true }) })
+      .filter({ has: page.getByRole("button", { name: "tomorrow" }) })
+      .last();
+    await row.getByRole("button", { name: "tomorrow" }).click();
+    await expect(page.getByText("moved to tomorrow morning.")).toBeVisible();
+    await expect(page.getByText(title)).not.toBeVisible();
+  });
+});
+
+// ─── First-run screen ────────────────────────────────────────
+// A signed-in user with no goals gets the welcome prompt instead of
+// the home dashboard.
+
+test.describe.serial("First run screen", () => {
+  test("shows the welcome prompt instead of the dashboard", async ({ page }) => {
+    await gotoFreshUser(page, "/");
+    await expect(page.getByText("nothing set up yet, and that's fine")).toBeVisible();
+    await expect(page.getByText("What's the one thing you'd like to get moving?")).toBeVisible();
+    await expect(page.getByText(/Say it however it sounds in your head/i)).toBeVisible();
+    // The dashboard buttons stay hidden until a goal exists
+    await expect(page.getByRole("link", { name: "schedule" })).not.toBeVisible();
+  });
+
+  test("offers example starters and a free-text input", async ({ page }) => {
+    await gotoFreshUser(page, "/");
+    await expect(page.getByRole("button", { name: "I want to find a new job" })).toBeVisible();
+    await expect(page.getByRole("button", { name: /stop eating out/ })).toBeVisible();
+    await expect(page.getByPlaceholder("type it here")).toBeVisible();
+    // The start button stays disabled while the box is empty
+    await expect(page.getByRole("button", { name: "start" })).toBeDisabled();
+    await page.getByPlaceholder("type it here").fill("my first thing");
+    await expect(page.getByRole("button", { name: "start" })).toBeEnabled();
+  });
+
+  test("tapping an example hands the text to the new-goal conversation", async ({ page }) => {
+    await gotoFreshUser(page, "/");
+    await page.getByRole("button", { name: "I want to find a new job" }).click();
+    await expect(page).toHaveURL(/\/new\?q=/);
+    await expect(page.getByText("What's on your mind?")).toBeVisible();
+  });
+
+  test("typing and submitting hands the text to the new-goal conversation", async ({ page }) => {
+    await gotoFreshUser(page, "/");
+    await page.getByPlaceholder("type it here").fill("get my paperwork in order");
+    await page.getByRole("button", { name: "start" }).click();
+    await expect(page).toHaveURL(/\/new\?q=get%20my%20paperwork%20in%20order/);
+  });
+});
+
+// ─── Empty states ────────────────────────────────────────────
+// A user with a goal but no blocks/spending/occasions sees calm
+// empty states rather than a blank page.
+
+test.describe.serial("Empty states", () => {
+  test("a goal with nothing scheduled shows quiet empty sections", async ({ page }) => {
+    const uid = await gotoFreshUser(page, "/");
+    // A goal exists but no blocks, spending targets, or occasions
+    await executeTools([{ name: "create_goal", arguments: { title: "An unscheduled goal" } }], uid);
+    await page.goto("/");
+    await page.waitForLoadState("networkidle");
+    await page.waitForTimeout(500);
+
+    // Not the first-run screen anymore — the real dashboard shows
+    await expect(page.getByRole("link", { name: "schedule" })).toBeVisible();
+    await expect(page.getByText("Nothing scheduled right now")).toBeVisible();
+    await expect(page.getByText("the time is yours.")).toBeVisible();
+    await expect(page.getByText("nothing else today.")).toBeVisible();
+  });
+});
+
+// ─── Block screen: state machine ─────────────────────────────
+
+test.describe.serial("Block screen states", () => {
+  test.beforeEach(async () => {
+    await reseed();
+  });
+
+  test("a future-only block still shows the empty state", async ({ page }) => {
+    await gotoFreshUser(page, "/");
+    const start = new Date(Date.now() + 3 * 3600000).toISOString();
+    await page.request.post(`${BASE}/api/schedule/confirm`, {
+      data: { goalTitle: "G", slots: [{ start, durationMinutes: 30, title: "Later" }] },
+    });
+    await page.goto("/block");
+    await page.waitForLoadState("networkidle");
+    await expect(page.getByText("Nothing scheduled right now")).toBeVisible({ timeout: 10000 });
+  });
+
+  test("a failed done request keeps the block running", async ({ page }) => {
+    await gotoAuthenticated(page, "/");
+    // Fail only the done call — the block itself loads fine
+    await page.route("**/api/blocks/*/done", (route) =>
+      route.fulfill({ status: 500, json: { error: "boom" } })
+    );
+    await page.goto("/block");
+    await page.waitForLoadState("networkidle");
+    await expect(page.getByText("block running")).toBeVisible({ timeout: 10000 });
+    await page.getByRole("button", { name: "Mark done" }).click();
+    await expect(page.getByText("something went wrong. try again.")).toBeVisible();
+    // Still in running mode — not falsely "Kept."
+    await expect(page.getByText("block running")).toBeVisible();
+    await expect(page.getByRole("button", { name: "Mark done" })).toBeVisible();
+  });
+
+  test("a failed move request keeps the block running", async ({ page }) => {
+    await gotoAuthenticated(page, "/");
+    await page.route("**/api/blocks/*/move", (route) =>
+      route.fulfill({ status: 500, json: { error: "nope" } })
+    );
+    await page.goto("/block");
+    await page.waitForLoadState("networkidle");
+    await expect(page.getByText("block running")).toBeVisible({ timeout: 10000 });
+    await page.getByRole("button", { name: "Move it" }).click();
+    await page.getByRole("button", { name: /Drop it this week/ }).click();
+    await expect(page.getByText("nope")).toBeVisible();
+    await expect(page.getByText("block running")).toBeVisible();
+  });
+
+  test("a stalled block fetch shows the error state", async ({ page }) => {
+    await gotoAuthenticated(page, "/");
+    await page.route("**/api/blocks/current", (route) =>
+      route.fulfill({ status: 500, json: { error: "down" } })
+    );
+    await page.goto("/block");
+    await expect(page.getByText("something went wrong.")).toBeVisible({ timeout: 10000 });
+  });
+
+  test("help conversation settles the block on a new task", async ({ page }) => {
+    await gotoAuthenticated(page, "/");
+    // Simulate the assistant agreeing on a first step — the reply carries
+    // a successful update_block tool result, so the UI moves to settled.
+    await page.route("**/api/chat", (route) =>
+      route.fulfill({
+        status: 200,
+        json: {
+          text: "Start by opening the adapter file.",
+          toolResults: [{ tool: "update_block", success: true, data: { title: "Open the adapter file" } }],
+        },
+      })
+    );
+    await page.goto("/block");
+    await page.waitForLoadState("networkidle");
+    await page.getByRole("button", { name: "I don't know how to start" }).click();
+    await expect(page.getByText("That is the block now.")).toBeVisible({ timeout: 10000 });
+    await expect(page.getByText("Open the adapter file")).toBeVisible();
+    // The settled block can still be closed normally
+    await page.getByRole("button", { name: "Mark done" }).click();
+    await expect(page.getByText("Kept.")).toBeVisible();
+  });
+
+  test("a failing help conversation reports the error in the chat", async ({ page }) => {
+    await gotoAuthenticated(page, "/");
+    await page.route("**/api/chat", (route) =>
+      route.fulfill({ status: 500, json: { error: "assistant unavailable" } })
+    );
+    await page.goto("/block");
+    await page.waitForLoadState("networkidle");
+    await page.getByRole("button", { name: "I don't know how to start" }).click();
+    await expect(page.getByText(/Something went wrong.*assistant unavailable/i)).toBeVisible({ timeout: 10000 });
+  });
+});
+
+// ─── Paused goals ────────────────────────────────────────────
+
+test.describe.serial("Paused goals", () => {
+  test("a paused goal is skipped by the schedule proposal", async ({ page }) => {
+    const uid = await gotoFreshUser(page, "/");
+    const created = await executeTools(
+      [{ name: "create_goal", arguments: { title: "Active goal title" } },
+       { name: "create_goal", arguments: { title: "Paused goal title" } }],
+      uid
+    );
+    const pausedId = created.results[1].data!.goal_id as string;
+    await executeTools(
+      [{ name: "update_goal", arguments: { goal_id: pausedId, status: "paused" } }],
+      uid
+    );
+    // The proposal must offer the active goal, never the paused one
+    const res = await page.request.get(`${BASE}/api/schedule/proposal`);
+    const prop = await res.json();
+    expect(prop.goal.title).toBe("Active goal title");
+  });
+
+  test("a user whose only goal is paused gets sent to /new", async ({ page }) => {
+    const uid = await gotoFreshUser(page, "/");
+    const created = await executeTools(
+      [{ name: "create_goal", arguments: { title: "Only goal" } }],
+      uid
+    );
+    await executeTools(
+      [{ name: "update_goal", arguments: { goal_id: created.results[0].data!.goal_id, status: "paused" } }],
+      uid
+    );
+    await page.goto("/schedule");
+    await expect(page).toHaveURL(/\/new/, { timeout: 15000 });
+  });
+});
+
+// ─── Unsubscribe page ────────────────────────────────────────
+
+test.describe.serial("Reminder unsubscribe page", () => {
+  test("a bad signature is rejected", async ({ page }) => {
+    await page.goto(`${BASE}/api/user/reminders?u=whatever&sig=forged`);
+    await expect(page.getByText("That link isn't valid.")).toBeVisible();
+  });
+
+  test("a signed link turns reminders off and offers to undo", async ({ page }) => {
+    const uid = await gotoFreshUser(page, "/");
+    const sig = unsubscribeSignature(uid);
+    await page.goto(`${BASE}/api/user/reminders?u=${uid}&sig=${sig}`);
+    await expect(page.getByText("You won't get reminder emails anymore.")).toBeVisible();
+
+    // Verify the flag flipped, then use the undo link
+    expect(await reminderEmailsOn(uid)).toBe(false);
+
+    await page.getByRole("link", { name: "turn them back on" }).click();
+    await expect(page.getByText("Reminder emails are back on.")).toBeVisible();
+    expect(await reminderEmailsOn(uid)).toBe(true);
   });
 });

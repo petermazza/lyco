@@ -5,6 +5,7 @@ import { isCalendarConnected, getProvider } from "@/lib/calendar/google";
 import { calendarRedirectUri } from "@/lib/app-url";
 import { generateText } from "@/lib/llm";
 import { resolveTimezone, zonedParts, zonedToUTC, formatTimeTz, todayBounds } from "@/lib/tz";
+import { isUUID } from "@/lib/tools";
 
 // ─── Candidate windows ───────────────────────────────────────
 // Recurring weekly slots to consider: weekday evenings, weekend
@@ -87,6 +88,9 @@ export async function GET(req: NextRequest) {
   }
 
   const goalId = req.nextUrl.searchParams.get("goalId");
+  if (goalId && !isUUID(goalId)) {
+    return NextResponse.json({ error: "Goal not found" }, { status: 404 });
+  }
   const perWeekParam = parseInt(req.nextUrl.searchParams.get("perWeek") ?? "", 10);
   const variant = Math.max(0, parseInt(req.nextUrl.searchParams.get("variant") ?? "0", 10) || 0);
 
