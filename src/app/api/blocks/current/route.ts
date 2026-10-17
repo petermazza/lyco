@@ -19,9 +19,11 @@ export async function GET() {
     status: string;
     progress: number;
     goal_title: string | null;
+    note: string | null;
   }>(
     `SELECT b.id, b.title, b.scheduled_at, b.duration_minutes, b.status, b.progress,
-            g.title AS goal_title
+            g.title AS goal_title,
+            COALESCE(b.note, g.note) AS note
      FROM blocks b
      LEFT JOIN goals g ON g.id = b.goal_id
      WHERE b.user_id = $1
@@ -50,6 +52,7 @@ export async function GET() {
       durationMinutes: b.duration_minutes,
       status: b.status,
       progress: b.progress,
+      note: b.note ?? null,
     },
   });
 }

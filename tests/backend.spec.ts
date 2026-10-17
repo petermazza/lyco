@@ -1724,3 +1724,131 @@ test.describe.serial("model choice", () => {
     await ctx.dispose();
   });
 });
+
+// ─── Attachments + goal/block notes ──────────────────────────
+
+const PNG_1PX =
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
+
+test.describe.serial("chat attachments and notes", () => {
+  test("validateAttachment accepts the supported types and rejects the rest", async () => {
+    const { validateAttachment } = await import("../src/lib/attachments");
+
+    const good = [
+      { name: "photo.png", mediaType: "image/png", kind: "image", data: PNG_1PX, sizeBytes: 70 },
+      { name: "scan.pdf", mediaType: "application/pdf", kind: "pdf", data: "JVBERi0xLjQK", sizeBytes: 10 },
+      { name: "spending.csv", mediaType: "text/csv", kind: "text", data: "date,amount\n1,2", sizeBytes: 15 },
+      // extension fallback when the mime type is vague
+      { name: "notes.txt", mediaType: "application/octet-stream", kind: "text", data: "hi", sizeBytes: 2 },
+    ];
+    for (const att of good) {
+      expect(validateAttachment(att).ok, att.name).toBe(true);
+    }
+
+    const bad = [
+      // unsupported type
+      { name: "run.exe", mediaType: "application/x-msdownload", kind: "text", data: "abc", sizeBytes: 3 },
+      { name: "page.html", mediaType: "text/html", kind: "text", data: "<b>x</b>", sizeBytes: 8 },
+      // oversized file
+      { name: "big.png", mediaType: "image/png", kind: "image", data: PNG_1PX, sizeBytes: 6 * 1024 * 1024 },
+      // invalid base64 for a binary kind
+      { name: "bad.png", mediaType: "image/png", kind: "image", data: "!!!not base64!!!", sizeBytes: 10 },
+      // missing pieces
+      { name: "no-data.png", mediaType: "image/png", kind: "image", data: "", sizeBytes: 0 },
+      { mediaType: "image/png", kind: "image", data: PNG_1PX, sizeBytes: 70 },
+      null,
+      "a string",
+    ];
+    for (const att of bad) {
+      expect(validateAttachment(att).ok, JSON.stringify(att).slice(0, 60)).toBe(false);
+    }
+  });
+
+  test("notes save on goals and blocks and surface on home and block", async () => {
+    const email = `notes-${Date.now()}@lyco.test`;
+    const ctx = await loginCtx(email);
+    const userId = await userIdOf(ctx);
+
+    const created = await executeTools(
+      [{ name: "create_goal", arguments: { title: "Kitchen reno", note: "Quote #4417 from Northwood." } }],
+      userId
+    );
+    expect(created.results[0].success).toBe(true);
+    const goalId = created.results[0].data?.goal_id as string;
+
+    const start = new Date(Date.now() - 5 * 60000).toISOString();
+    const sched = await executeTools(
+      [{ name: "schedule_block", arguments: {
+          title: "Compare counter quotes",
+          scheduled_at: start,
+          duration_minutes: 60,
+          goal_id: goalId,
+          note: "Northwood $4,120 vs Rona $3,890.",
+        } }],
+      userId
+    );
+    expect(sched.results[0].success).toBe(true);
+    const blockId = sched.results[0].data?.block_id as string;
+
+    // A block note beats the goal note; update_block can set it alone.
+    const upd = await executeTools(
+      [{ name: "update_block", arguments: { block_id: blockId, note: "Ask about install dates first." } }],
+      userId
+    );
+    expect(upd.results[0].success).toBe(true);
+    expect(upd.results[0].data?.note).toBe("Ask about install dates first.");
+
+    const current = await (await ctx.get(`${BASE}/api/blocks/current`)).json();
+    expect(current.block.note).toBe("Ask about install dates first.");
+
+    const home = await (await ctx.get(`${BASE}/api/home`)).json();
+    expect(home.currentBlock.note).toBe("Ask about install dates first.");
+
+    const goalUpd = await executeTools(
+      [{ name: "update_goal", arguments: { goal_id: goalId, note: "Final decision Friday." } }],
+      userId
+    );
+    expect(goalUpd.results[0].success).toBe(true);
+    const stored = await withDb(async (c) =>
+      (await c.query(`SELECT note FROM goals WHERE id = $1`, [goalId])).rows[0].note
+    );
+    expect(stored).toBe("Final decision Friday.");
+    await ctx.dispose();
+  });
+
+  test("chat accepts a text attachment and logs only its metadata", async () => {
+    const email = `attach-${Date.now()}@lyco.test`;
+    const ctx = await loginCtx(email);
+    const userId = await userIdOf(ctx);
+
+    const csv = "date,item,amount\n2025-01-05,coffee,4.50";
+    const res = await ctx.post(`${BASE}/api/chat`, {
+      data: {
+        messages: [{
+          role: "user",
+          content: "In one short sentence, what does this file list?",
+          attachments: [
+            { name: "spending.csv", mediaType: "text/csv", kind: "text", data: csv, sizeBytes: csv.length },
+          ],
+        }],
+      },
+    });
+    expect(res.status()).toBe(200);
+
+    // The file itself must never land in the interaction log — only
+    // its name, type, and size.
+    const logged = await withDb(async (c) =>
+      (await c.query(
+        `SELECT prompt FROM llm_interactions WHERE user_id = $1 ORDER BY created_at DESC LIMIT 1`,
+        [userId]
+      )).rows[0].prompt
+    );
+    const msgs = typeof logged === "string" ? JSON.parse(logged) : logged;
+    const att = msgs[0].attachments[0];
+    expect(att.name).toBe("spending.csv");
+    expect(att.mediaType).toBe("text/plain");
+    expect(att.sizeBytes).toBe(csv.length);
+    expect(att.data).toBeUndefined();
+    await ctx.dispose();
+  });
+});

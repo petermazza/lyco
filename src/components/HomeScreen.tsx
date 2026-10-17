@@ -19,6 +19,7 @@ interface HomeData {
     progress: string;
     elapsed: string;
     left: string;
+    note?: string | null;
   } | null;
   laterToday: { time: string; title: string; len: string }[];
   earlier: { id: string; title: string; time: string }[];
@@ -389,6 +390,11 @@ export function HomeScreen() {
                 <div style={{ fontSize: 13, color: "var(--app-text-muted)", marginTop: 6 }}>
                   {d.currentBlock.meta}
                 </div>
+                {d.currentBlock.note && (
+                  <div style={{ fontSize: 14, lineHeight: 1.5, color: "var(--app-text-muted)", marginTop: 8, textWrap: "pretty" }}>
+                    {d.currentBlock.note}
+                  </div>
+                )}
               </div>
 
               <div>

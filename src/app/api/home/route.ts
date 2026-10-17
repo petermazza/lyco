@@ -41,6 +41,7 @@ interface HomeResponse {
     progress: string;
     elapsed: string;
     left: string;
+    note: string | null;
   } | null;
   laterToday: { time: string; title: string; len: string }[];
   earlier: { id: string; title: string; time: string }[];
@@ -91,13 +92,16 @@ export async function GET() {
     duration_minutes: number;
     status: string;
     progress: number;
+    note: string | null;
   }>(
-    `SELECT id, title, scheduled_at, duration_minutes, status, progress
-     FROM blocks
-     WHERE user_id = $1
-       AND scheduled_at >= $2 AND scheduled_at < $3
-       AND status IN ('scheduled', 'running', 'missed')
-     ORDER BY scheduled_at`,
+    `SELECT b.id, b.title, b.scheduled_at, b.duration_minutes, b.status, b.progress,
+            COALESCE(b.note, g.note) AS note
+     FROM blocks b
+     LEFT JOIN goals g ON g.id = b.goal_id
+     WHERE b.user_id = $1
+       AND b.scheduled_at >= $2 AND b.scheduled_at < $3
+       AND b.status IN ('scheduled', 'running', 'missed')
+     ORDER BY b.scheduled_at`,
     [userId, todayStart, todayEnd]
   );
 
@@ -121,6 +125,7 @@ export async function GET() {
         progress: `${b.progress}%`,
         elapsed: elapsedMin > 0 ? `${elapsedMin} minutes in` : "just started",
         left: `${leftMin} minutes left`,
+        note: b.note ?? null,
       };
     } else if (start > now) {
       laterToday.push({

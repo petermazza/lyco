@@ -56,6 +56,11 @@ CREATE TABLE IF NOT EXISTS goals (
 
 CREATE INDEX IF NOT EXISTS idx_goals_user_id ON goals(user_id);
 
+-- Reference details extracted from an attached document, kept on the
+-- goal so the next work block can surface them. Attachments themselves
+-- are never stored.
+ALTER TABLE goals ADD COLUMN IF NOT EXISTS note TEXT;
+
 -- ─── Spending goals (budgets) ───────────────────────────────
 CREATE TABLE IF NOT EXISTS spending_goals (
   id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -83,6 +88,10 @@ CREATE TABLE IF NOT EXISTS blocks (
 );
 
 ALTER TABLE blocks ADD COLUMN IF NOT EXISTS calendar_event_id TEXT;
+
+-- Reference details extracted from an attached document, shown when the
+-- block starts. Attachments themselves are never stored.
+ALTER TABLE blocks ADD COLUMN IF NOT EXISTS note TEXT;
 
 CREATE INDEX IF NOT EXISTS idx_blocks_user_id ON blocks(user_id);
 CREATE INDEX IF NOT EXISTS idx_blocks_scheduled_at ON blocks(scheduled_at);

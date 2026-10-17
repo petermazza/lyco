@@ -1,6 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { toolDefinitions, type ToolCall } from "./tools";
 import { executeTools, type ToolResult, type RowChange } from "./tool-executor";
+import type { ChatAttachment, ImageMediaType } from "./attachments";
 import { query } from "./db";
 
 // ─── Types ───────────────────────────────────────────────────
@@ -8,6 +9,7 @@ import { query } from "./db";
 export interface ChatMessage {
   role: "user" | "assistant";
   content: string;
+  attachments?: ChatAttachment[];
 }
 
 export interface LLMResponse {
@@ -61,6 +63,8 @@ When the user wants to schedule time, use schedule_block. When they finish somet
 
 You also look after spending and dates. When the user wants a monthly limit on something (like "I want to spend less on eating out"), use create_spending_goal. When they say they bought something, use log_spending — match the spending target by name, and if nothing fits, ask which target it belongs to rather than guessing. When they mention an upcoming date worth remembering (a birthday, a trip, a deadline someone else set), use add_occasion.
 
+When the user attaches a photo, PDF, or text or CSV file, read it directly. If it is a receipt, bill, or a CSV of transactions, log the purchases with log_spending — ask which spending target to use if none matches. If it is an invitation or an event, save it with add_occasion. If it is a document or screenshot for a goal or a work block, save the key details or the first step into the goal or block note so they have it in front of them later — attachments themselves are not kept after the conversation.
+
 Log purchases and dates without lecturing. Record what happened, confirm in one sentence, move on.
 
 Never generate SQL. Never claim to have done something without calling the appropriate tool first. After a tool call succeeds, confirm what happened in a brief, human sentence.`;
@@ -100,10 +104,45 @@ async function runConversation(
   context: string | undefined,
   model: string
 ): Promise<LLMResponse> {
-  const anthropicMessages = messages.map((m) => ({
-    role: m.role as "user" | "assistant",
-    content: m.content,
-  }));
+  const anthropicMessages: Anthropic.MessageParam[] = messages.map((m) => {
+    if (m.role !== "user" || !m.attachments?.length) {
+      return { role: m.role, content: m.content };
+    }
+    const content: Anthropic.ContentBlockParam[] = m.attachments.map((att) => {
+      if (att.kind === "image") {
+        return {
+          type: "image",
+          source: {
+            type: "base64",
+            media_type: att.mediaType as ImageMediaType,
+            data: att.data,
+          },
+        };
+      }
+      if (att.kind === "pdf") {
+        return {
+          type: "document",
+          title: att.name,
+          source: {
+            type: "base64",
+            media_type: "application/pdf",
+            data: att.data,
+          },
+        };
+      }
+      return {
+        type: "document",
+        title: att.name,
+        source: {
+          type: "text",
+          media_type: "text/plain",
+          data: att.data,
+        },
+      };
+    });
+    content.push({ type: "text", text: m.content || "See attached." });
+    return { role: m.role, content };
+  });
 
   let allToolCalls: ToolCall[] = [];
   let allToolResults: ToolResult[] = [];
@@ -233,13 +272,30 @@ export async function logInteraction(
   response: LLMResponse,
   model: string
 ): Promise<void> {
+  // Attachments are read once and never stored — the log keeps only
+  // each file's name, type, and size, never its contents.
+  const safePrompt = prompt.map((m) =>
+    m.attachments?.length
+      ? {
+          ...m,
+          attachments: m.attachments.map(
+            ({ name, mediaType, kind, sizeBytes }) => ({
+              name,
+              mediaType,
+              kind,
+              sizeBytes,
+            })
+          ),
+        }
+      : m
+  );
   await query(
     `INSERT INTO llm_interactions (user_id, session_id, prompt, model_response, tools_called, rows_changed, model)
      VALUES ($1, $2, $3, $4, $5, $6, $7)`,
     [
       userId,
       sessionId,
-      JSON.stringify(prompt),
+      JSON.stringify(safePrompt),
       JSON.stringify(response.rawResponse),
       JSON.stringify(response.toolCalls),
       JSON.stringify(response.rowChanges),

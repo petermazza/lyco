@@ -3,6 +3,12 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import {
+  ACCEPT_ATTACHMENTS,
+  MAX_ATTACHMENTS,
+  readFileAsAttachment,
+  type ChatAttachment,
+} from "@/lib/attachments";
 
 // ─── Types ───────────────────────────────────────────────────
 
@@ -14,12 +20,14 @@ interface CurrentBlock {
   durationMinutes: number;
   status: string;
   progress: number;
+  note?: string | null;
 }
 
 interface ChatMessage {
   who: "user" | "bot";
   text: string;
   ask?: boolean;
+  attachments?: { name: string }[];
 }
 
 type BlockMode = "running" | "help" | "settled" | "closed";
@@ -56,9 +64,12 @@ export function BlockScreen() {
 
   const [log, setLog] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
+  const [pendingAttachments, setPendingAttachments] = useState<ChatAttachment[]>([]);
   const [chatLoading, setChatLoading] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const attachIntentRef = useRef<"running" | "help">("help");
 
   const [toast, setToast] = useState<string | null>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -187,12 +198,20 @@ export function BlockScreen() {
     );
   }, [block, elapsedMin, leftMin]);
 
-  const sendChat = useCallback(async (text: string) => {
-    if (!text.trim() || chatLoading) return;
+  const sendChat = useCallback(async (text: string, atts: ChatAttachment[] = []) => {
+    if ((!text.trim() && atts.length === 0) || chatLoading) return;
 
-    const newLog: ChatMessage[] = [...log, { who: "user", text }];
+    const newLog: ChatMessage[] = [
+      ...log,
+      {
+        who: "user",
+        text: text.trim() || "See attached.",
+        attachments: atts.length ? atts.map((a) => ({ name: a.name })) : undefined,
+      },
+    ];
     setLog(newLog);
     setInput("");
+    setPendingAttachments([]);
     setChatLoading(true);
 
     const controller = new AbortController();
@@ -202,9 +221,12 @@ export function BlockScreen() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          messages: newLog.map((m) => ({
+          messages: newLog.map((m, i) => ({
             role: m.who === "user" ? "user" : "assistant",
             content: m.text,
+            // Only the message being sent carries file bytes — earlier
+            // bubbles keep just the names.
+            attachments: i === newLog.length - 1 && atts.length ? atts : undefined,
           })),
           context: blockContext(),
         }),
@@ -222,14 +244,23 @@ export function BlockScreen() {
         setLog((prev) => [...prev, { who: "bot", text: data.text, ask: true }]);
       }
 
-      // If the assistant settled the block on a new task, reflect it
-      const rename = data.toolResults?.find(
-        (r: { tool: string; success: boolean; data?: { title?: string } }) =>
+      // If the assistant settled the block on a new task or saved a
+      // reference note from an attachment, reflect it
+      const update = data.toolResults?.find(
+        (r: { tool: string; success: boolean; data?: { title?: string; note?: string | null } }) =>
           r.tool === "update_block" && r.success
       );
-      if (rename?.data?.title) {
-        setBlock((b) => (b ? { ...b, title: rename.data.title } : b));
-        setMode("settled");
+      if (update?.data?.title || update?.data?.note) {
+        setBlock((b) =>
+          b
+            ? {
+                ...b,
+                ...(update.data.title ? { title: update.data.title } : {}),
+                ...(update.data.note ? { note: update.data.note } : {}),
+              }
+            : b
+        );
+        if (update.data.title) setMode("settled");
       }
     } catch {
       setLog((prev) => [...prev, { who: "bot", text: "Something went wrong. Try again." }]);
@@ -244,6 +275,45 @@ export function BlockScreen() {
     setMode("help");
     sendChat("I don't know how to start.");
   }, [sendChat]);
+
+  const openPicker = useCallback((intent: "running" | "help") => {
+    attachIntentRef.current = intent;
+    fileInputRef.current?.click();
+  }, []);
+
+  const handleFilesPicked = useCallback(
+    async (e: React.ChangeEvent<HTMLInputElement>) => {
+      const files = Array.from(e.target.files ?? []);
+      e.target.value = "";
+      if (!files.length) return;
+
+      if (attachIntentRef.current === "running") {
+        // Mid-block, the file is the question — read it straight in.
+        const { attachment, error } = await readFileAsAttachment(files[0]);
+        if (error || !attachment) {
+          showToast(error ?? "that file didn't work. try another.");
+          return;
+        }
+        setMode("help");
+        sendChat("Here is what I'm looking at.", [attachment]);
+        return;
+      }
+
+      if (pendingAttachments.length + files.length > MAX_ATTACHMENTS) {
+        showToast("up to 3 files at a time.");
+        return;
+      }
+      for (const file of files) {
+        const { attachment, error } = await readFileAsAttachment(file);
+        if (error || !attachment) {
+          showToast(error ?? "that file didn't work. try another.");
+          continue;
+        }
+        setPendingAttachments((prev) => [...prev, attachment]);
+      }
+    },
+    [pendingAttachments.length, showToast, sendChat]
+  );
 
   // ─── Loading / empty ───────────────────────────────────────
 
@@ -283,6 +353,14 @@ export function BlockScreen() {
 
   return (
     <div className="mobile-shell" style={{ position: "relative", height: "100dvh", display: "flex", flexDirection: "column", overflow: "hidden" }}>
+      <input
+        ref={fileInputRef}
+        type="file"
+        multiple
+        accept={ACCEPT_ATTACHMENTS}
+        onChange={handleFilesPicked}
+        style={{ display: "none" }}
+      />
       <div
         ref={scrollRef}
         style={{ flex: 1, overflowY: "auto", padding: "0 20px 34px", display: "flex", flexDirection: "column", gap: "var(--space-8)" }}
@@ -308,6 +386,11 @@ export function BlockScreen() {
           <div style={{ fontSize: 14, color: "color-mix(in srgb, var(--color-text) 55%, transparent)", marginTop: 10 }}>
             {elapsedMin === 0 ? "just started" : `${elapsedMin} minutes in`} · ends at {end ? formatTime(end) : ""}
           </div>
+          {block.note && (
+            <div style={{ fontSize: 14, lineHeight: 1.5, color: "color-mix(in srgb, var(--color-text) 65%, transparent)", marginTop: 10, textWrap: "pretty" }}>
+              {block.note}
+            </div>
+          )}
         </section>
 
         {/* running mode */}
@@ -322,6 +405,14 @@ export function BlockScreen() {
             <button className="btn btn-secondary" style={{ minHeight: 48, fontSize: 15, width: "100%" }} onClick={startHelp} disabled={chatLoading}>
               I don't know how to start
             </button>
+            <button
+              className="btn btn-secondary"
+              style={{ minHeight: 48, fontSize: 15, width: "100%" }}
+              onClick={() => openPicker("running")}
+              disabled={chatLoading}
+            >
+              Attach what you're looking at
+            </button>
           </div>
         )}
 
@@ -333,7 +424,26 @@ export function BlockScreen() {
                 {m.who === "user" && (
                   <div style={{ display: "flex", justifyContent: "flex-end" }}>
                     <div style={{ maxWidth: "78%", background: "var(--color-surface)", borderRadius: "var(--radius-lg)", padding: "10px 14px", fontSize: 15, lineHeight: 1.45, textWrap: "pretty" }}>
-                      {m.text}
+                      {m.attachments?.map((a) => (
+                        <div
+                          key={a.name}
+                          style={{
+                            display: "inline-flex",
+                            alignItems: "center",
+                            gap: 6,
+                            fontSize: 12,
+                            padding: "3px 9px",
+                            marginBottom: 6,
+                            marginRight: 6,
+                            borderRadius: "var(--radius-md)",
+                            border: "1px solid var(--app-hairline)",
+                            color: "var(--app-text-muted)",
+                          }}
+                        >
+                          {a.name}
+                        </div>
+                      ))}
+                      <div>{m.text}</div>
                     </div>
                   </div>
                 )}
@@ -400,13 +510,54 @@ export function BlockScreen() {
       {/* help input */}
       {mode === "help" && (
         <div style={{ flex: "none", padding: "0 20px 34px" }}>
+          {pendingAttachments.length > 0 && (
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: "var(--space-3)" }}>
+              {pendingAttachments.map((att, i) => (
+                <span
+                  key={`${att.name}-${i}`}
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: 6,
+                    fontSize: 12,
+                    padding: "4px 6px 4px 10px",
+                    borderRadius: "var(--radius-md)",
+                    border: "1px solid var(--app-hairline)",
+                    color: "var(--app-text-muted)",
+                  }}
+                >
+                  {att.name}
+                  <button
+                    type="button"
+                    aria-label={`remove ${att.name}`}
+                    onClick={() => setPendingAttachments((prev) => prev.filter((_, j) => j !== i))}
+                    style={{ background: "none", border: "none", padding: "2px 4px", cursor: "pointer", color: "inherit", fontSize: 14, lineHeight: 1 }}
+                  >
+                    ×
+                  </button>
+                </span>
+              ))}
+            </div>
+          )}
           <form
             onSubmit={(e) => {
               e.preventDefault();
-              sendChat(input);
+              sendChat(input, pendingAttachments);
             }}
             style={{ display: "flex", alignItems: "center", gap: "var(--space-3)" }}
           >
+            <button
+              type="button"
+              aria-label="attach"
+              className="btn btn-ghost btn-icon"
+              style={{ width: 44, height: 44, borderRadius: "50%", flex: "none" }}
+              onClick={() => openPicker("help")}
+              disabled={chatLoading}
+            >
+              <svg width="17" height="17" viewBox="0 0 256 256" fill="currentColor">
+                <path d="M209.66 122.34a8 8 0 0 1 0 11.32l-82.05 82a56 56 0 0 1-79.2-79.21l99.31-99.31a40 40 0 1 1 56.57 56.55l-98.35 98.34a24 24 0 0 1-33.94-33.94l77.17-77.16a8 8 0 1 1 11.31 11.32l-77.15 77.16a8 8 0 0 0 11.31 11.32l98.35-98.34a24 24 0 0 0-33.94-33.94L59.7 127.36a40 40 0 0 0 56.58 56.56Z" />
+              </svg>
+            </button>
             <input
               ref={inputRef}
               className="input"
@@ -421,7 +572,7 @@ export function BlockScreen() {
               className="btn btn-secondary btn-icon"
               style={{ width: 44, height: 44, borderRadius: "50%", flex: "none" }}
               aria-label="send"
-              disabled={chatLoading || !input.trim()}
+              disabled={chatLoading || (!input.trim() && pendingAttachments.length === 0)}
             >
               <svg width="17" height="17" viewBox="0 0 256 256" fill="currentColor">
                 <path d="M210 128a10 10 0 0 1-5.7 9l-152 72a10 10 0 0 1-13.7-12l22-79-22-79a10 10 0 0 1 13.7-12l152 72a10 10 0 0 1 5.7 9Zm-30 0-131-62 18 62Zm-113 62 131-62H85Z" />

@@ -3,11 +3,18 @@
 import React, { useState, useRef, useEffect, useCallback } from "react";
 import Link from "next/link";
 import { useSearchParams, useRouter } from "next/navigation";
+import {
+  ACCEPT_ATTACHMENTS,
+  MAX_ATTACHMENTS,
+  readFileAsAttachment,
+  type ChatAttachment,
+} from "@/lib/attachments";
 
 interface Message {
   who: "user" | "bot";
   text: string;
   isAsk?: boolean;
+  attachments?: { name: string }[];
 }
 
 interface ModelOption {
@@ -24,6 +31,7 @@ export function NewProjectScreen() {
     { who: "bot", text: "What's on your mind? A goal, a purchase, or a date worth remembering — say it plainly.", isAsk: true },
   ]);
   const [input, setInput] = useState("");
+  const [pendingAttachments, setPendingAttachments] = useState<ChatAttachment[]>([]);
   const [loading, setLoading] = useState(false);
   const [goalCreated, setGoalCreated] = useState(false);
   const [goalId, setGoalId] = useState<string | null>(null);
@@ -34,6 +42,7 @@ export function NewProjectScreen() {
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const showToast = useCallback((msg: string) => {
     if (toastTimer.current) clearTimeout(toastTimer.current);
@@ -103,13 +112,18 @@ export function NewProjectScreen() {
     }
   }, [searchParams, authed]);
 
-  const sendMessage = useCallback(async (text: string) => {
-    if (!text.trim() || loading) return;
+  const sendMessage = useCallback(async (text: string, atts: ChatAttachment[] = []) => {
+    if ((!text.trim() && atts.length === 0) || loading) return;
 
-    const userMsg: Message = { who: "user", text };
+    const userMsg: Message = {
+      who: "user",
+      text: text.trim() || "See attached.",
+      attachments: atts.length ? atts.map((a) => ({ name: a.name })) : undefined,
+    };
     const newMessages = [...messages, userMsg];
     setMessages(newMessages);
     setInput("");
+    setPendingAttachments([]);
     setLoading(true);
 
     const controller = new AbortController();
@@ -119,9 +133,13 @@ export function NewProjectScreen() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          messages: newMessages.map((m) => ({
+          messages: newMessages.map((m, i) => ({
             role: m.who === "user" ? "user" : "assistant",
             content: m.text,
+            // Only the message being sent carries file bytes — earlier
+            // bubbles keep just the names.
+            attachments:
+              i === newMessages.length - 1 && atts.length ? atts : undefined,
           })),
         }),
         signal: controller.signal,
@@ -157,10 +175,31 @@ export function NewProjectScreen() {
     }
   }, [messages, loading]);
 
+  const handleFilesPicked = useCallback(
+    async (e: React.ChangeEvent<HTMLInputElement>) => {
+      const files = Array.from(e.target.files ?? []);
+      e.target.value = "";
+      if (!files.length) return;
+      if (pendingAttachments.length + files.length > MAX_ATTACHMENTS) {
+        showToast("up to 3 files at a time.");
+        return;
+      }
+      for (const file of files) {
+        const { attachment, error } = await readFileAsAttachment(file);
+        if (error || !attachment) {
+          showToast(error ?? "that file didn't work. try another.");
+          continue;
+        }
+        setPendingAttachments((prev) => [...prev, attachment]);
+      }
+    },
+    [pendingAttachments.length, showToast]
+  );
+
   const handleSubmit = useCallback((e: React.FormEvent) => {
     e.preventDefault();
-    sendMessage(input);
-  }, [input, sendMessage]);
+    sendMessage(input, pendingAttachments);
+  }, [input, pendingAttachments, sendMessage]);
 
   const quiet = "color-mix(in srgb, var(--color-text) 28%, transparent)";
   const set = "color-mix(in srgb, var(--color-text) 75%, transparent)";
@@ -197,7 +236,26 @@ export function NewProjectScreen() {
             {m.who === "user" && (
               <div style={{ display: "flex", justifyContent: "flex-end" }}>
                 <div style={{ maxWidth: "78%", background: "var(--color-surface)", borderRadius: "var(--radius-lg)", padding: "10px 14px", fontSize: 15, lineHeight: 1.45, textWrap: "pretty" }}>
-                  {m.text}
+                  {m.attachments?.map((a) => (
+                    <div
+                      key={a.name}
+                      style={{
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: 6,
+                        fontSize: 12,
+                        padding: "3px 9px",
+                        marginBottom: 6,
+                        marginRight: 6,
+                        borderRadius: "var(--radius-md)",
+                        border: "1px solid var(--app-hairline)",
+                        color: "var(--app-text-muted)",
+                      }}
+                    >
+                      {a.name}
+                    </div>
+                  ))}
+                  <div>{m.text}</div>
                 </div>
               </div>
             )}
@@ -260,7 +318,57 @@ export function NewProjectScreen() {
           )}
         </div>
 
+        {pendingAttachments.length > 0 && (
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: "var(--space-3)" }}>
+            {pendingAttachments.map((att, i) => (
+              <span
+                key={`${att.name}-${i}`}
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 6,
+                  fontSize: 12,
+                  padding: "4px 6px 4px 10px",
+                  borderRadius: "var(--radius-md)",
+                  border: "1px solid var(--app-hairline)",
+                  color: "var(--app-text-muted)",
+                }}
+              >
+                {att.name}
+                <button
+                  type="button"
+                  aria-label={`remove ${att.name}`}
+                  onClick={() => setPendingAttachments((prev) => prev.filter((_, j) => j !== i))}
+                  style={{ background: "none", border: "none", padding: "2px 4px", cursor: "pointer", color: "inherit", fontSize: 14, lineHeight: 1 }}
+                >
+                  ×
+                </button>
+              </span>
+            ))}
+          </div>
+        )}
+
         <form onSubmit={handleSubmit} style={{ display: "flex", alignItems: "center", gap: "var(--space-3)", marginTop: "var(--space-2)" }}>
+          <input
+            ref={fileInputRef}
+            type="file"
+            multiple
+            accept={ACCEPT_ATTACHMENTS}
+            onChange={handleFilesPicked}
+            style={{ display: "none" }}
+          />
+          <button
+            type="button"
+            aria-label="attach"
+            className="btn btn-ghost btn-icon"
+            style={{ width: 44, height: 44, borderRadius: "50%", flex: "none" }}
+            onClick={() => fileInputRef.current?.click()}
+            disabled={loading}
+          >
+            <svg width="17" height="17" viewBox="0 0 256 256" fill="currentColor">
+              <path d="M209.66 122.34a8 8 0 0 1 0 11.32l-82.05 82a56 56 0 0 1-79.2-79.21l99.31-99.31a40 40 0 1 1 56.57 56.55l-98.35 98.34a24 24 0 0 1-33.94-33.94l77.17-77.16a8 8 0 1 1 11.31 11.32l-77.15 77.16a8 8 0 0 0 11.31 11.32l98.35-98.34a24 24 0 0 0-33.94-33.94L59.7 127.36a40 40 0 0 0 56.58 56.56Z" />
+            </svg>
+          </button>
           <input
             ref={inputRef}
             className="input"
@@ -276,7 +384,7 @@ export function NewProjectScreen() {
             className="btn btn-secondary btn-icon"
             style={{ width: 44, height: 44, borderRadius: "50%", flex: "none" }}
             aria-label="send"
-            disabled={loading || !input.trim()}
+            disabled={loading || (!input.trim() && pendingAttachments.length === 0)}
           >
             <svg width="17" height="17" viewBox="0 0 256 256" fill="currentColor">
               <path d="M210 128a10 10 0 0 1-5.7 9l-152 72a10 10 0 0 1-13.7-12l22-79-22-79a10 10 0 0 1 13.7-12l152 72a10 10 0 0 1 5.7 9Zm-30 0-131-62 18 62Zm-113 62 131-62H85Z" />

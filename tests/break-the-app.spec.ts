@@ -182,6 +182,37 @@ test.describe.serial("malformed request bodies", () => {
     expect(body.errors.length).toBe(3);
     await ctx.dispose();
   });
+
+  test("chat rejects malformed attachments with a 400", async () => {
+    const ctx = await loginCtx(uniq("badattach"));
+    const text = "date,amount\n1,2";
+    const validAtt = { name: "ok.csv", mediaType: "text/csv", kind: "text", data: text, sizeBytes: text.length };
+
+    const badBodies: unknown[] = [
+      // more than 3 attachments on one message
+      { messages: [{ role: "user", attachments: [validAtt, validAtt, validAtt, validAtt] }] },
+      // executable / unsupported types
+      { messages: [{ role: "user", attachments: [{ name: "run.exe", mediaType: "application/x-msdownload", kind: "text", data: "abc", sizeBytes: 3 }] }] },
+      { messages: [{ role: "user", attachments: [{ name: "page.html", mediaType: "text/html", kind: "text", data: "<b>x</b>", sizeBytes: 8 }] }] },
+      // claims to be over 5 mb
+      { messages: [{ role: "user", attachments: [{ name: "big.png", mediaType: "image/png", kind: "image", data: "AAAA", sizeBytes: 6 * 1024 * 1024 }] }] },
+      // invalid base64 for a binary kind
+      { messages: [{ role: "user", attachments: [{ name: "bad.png", mediaType: "image/png", kind: "image", data: "!!!not base64!!!", sizeBytes: 10 }] }] },
+      // attachment that isn't an object
+      { messages: [{ role: "user", attachments: ["file.png"] }] },
+      { messages: [{ role: "user", attachments: [null] }] },
+      // attachments that aren't an array
+      { messages: [{ role: "user", content: "hi", attachments: "ok.csv" }] },
+      // neither text nor attachment
+      { messages: [{ role: "user", content: "", attachments: [] }] },
+    ];
+
+    for (const data of badBodies) {
+      const res = await ctx.post(`${BASE}/api/chat`, { data });
+      expect(res.status(), JSON.stringify(data).slice(0, 120)).toBe(400);
+    }
+    await ctx.dispose();
+  });
 });
 
 // ─── Malformed path values ───────────────────────────────────

@@ -910,3 +910,107 @@ test.describe.serial("Model picker", () => {
     await expect(page.getByRole("button", { name: /model: Sonnet/ })).toBeVisible();
   });
 });
+
+// ─── Attachments ─────────────────────────────────────────────
+
+async function withDb<T>(fn: (c: pg.Client) => Promise<T>): Promise<T> {
+  const client = new pg.Client({ connectionString: envVar("DATABASE_URL") });
+  await client.connect();
+  try {
+    return await fn(client);
+  } finally {
+    await client.end();
+  }
+}
+
+test.describe.serial("Attachments", () => {
+  test("picking a file shows a chip and enables send with an empty box", async ({ page }) => {
+    await gotoFreshUser(page, "/new");
+    await page.locator('input[type="file"]').setInputFiles({
+      name: "note.txt",
+      mimeType: "text/plain",
+      buffer: Buffer.from("hello from a file"),
+    });
+    await expect(page.getByText("note.txt")).toBeVisible();
+    await expect(page.getByRole("button", { name: "send" })).toBeEnabled();
+
+    await page.getByRole("button", { name: "remove note.txt" }).click();
+    await expect(page.getByText("note.txt")).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "send" })).toBeDisabled();
+  });
+
+  test("an unsupported file gets a toast, not a chip", async ({ page }) => {
+    await gotoFreshUser(page, "/new");
+    await page.locator('input[type="file"]').setInputFiles({
+      name: "page.html",
+      mimeType: "text/html",
+      buffer: Buffer.from("<b>nope</b>"),
+    });
+    await expect(page.getByText(/only photos, pdfs, and text or csv files/i)).toBeVisible();
+    await expect(page.getByText("page.html")).toHaveCount(0);
+  });
+
+  test("sending a file posts it with the message and names it in the bubble", async ({ page }) => {
+    await gotoFreshUser(page, "/new");
+    let sentBody: { messages: { attachments?: { name: string; kind: string; data: string }[] }[] } | null = null;
+    await page.route("**/api/chat", async (route) => {
+      sentBody = route.request().postDataJSON();
+      await route.fulfill({
+        status: 200,
+        json: { text: "Got it — a text file with one line.", toolCalls: [], toolResults: [] },
+      });
+    });
+
+    await page.locator('input[type="file"]').setInputFiles({
+      name: "idea.txt",
+      mimeType: "text/plain",
+      buffer: Buffer.from("start with the outline"),
+    });
+    await page.getByRole("button", { name: "send" }).click();
+
+    await expect(page.getByText("Got it — a text file with one line.")).toBeVisible();
+    expect(sentBody).not.toBeNull();
+    const last = sentBody!.messages[sentBody!.messages.length - 1];
+    expect(last.attachments).toHaveLength(1);
+    expect(last.attachments![0].name).toBe("idea.txt");
+    expect(last.attachments![0].kind).toBe("text");
+    expect(last.attachments![0].data).toContain("start with the outline");
+    // Earlier messages carry no file bytes
+    expect(sentBody!.messages[0].attachments).toBeUndefined();
+  });
+
+  test("a saved note shows on the block screen, and attaching mid-block opens help with the file", async ({ page }) => {
+    await reseed();
+    await withDb(async (c) =>
+      c.query(`UPDATE blocks SET note = $1 WHERE title = 'Draft the SimpleFIN adapter'`, [
+        "Start with the read path — the write path can wait.",
+      ])
+    );
+    await gotoAuthenticated(page, "/block");
+    await expect(page.getByText("Start with the read path — the write path can wait.")).toBeVisible({ timeout: 10000 });
+
+    let sentBody: { messages: { attachments?: { name: string }[] }[] } | null = null;
+    await page.route("**/api/chat", async (route) => {
+      sentBody = route.request().postDataJSON();
+      await route.fulfill({
+        status: 200,
+        json: { text: "Looks like a short spec — start by sketching the header.", toolCalls: [], toolResults: [] },
+      });
+    });
+
+    await page.getByRole("button", { name: "Attach what you're looking at" }).click();
+    await page.locator('input[type="file"]').setInputFiles({
+      name: "spec.txt",
+      mimeType: "text/plain",
+      buffer: Buffer.from("spec: build the adapter"),
+    });
+
+    // The file goes straight into the help conversation
+    await expect(page.getByText("Here is what I'm looking at.")).toBeVisible();
+    await expect(page.getByText("spec.txt")).toBeVisible();
+    await expect(page.getByText(/sketching the header/)).toBeVisible();
+    expect(sentBody).not.toBeNull();
+    const last = sentBody!.messages[sentBody!.messages.length - 1];
+    expect(last.attachments![0].name).toBe("spec.txt");
+  });
+});

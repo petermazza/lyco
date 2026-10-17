@@ -46,6 +46,10 @@ export const toolDefinitions: ToolDefinition[] = [
           type: "string",
           description: "How often time should be held for this goal. e.g. '2x a week', 'weekly', 'weekday mornings'",
         },
+        note: {
+          type: "string",
+          description: "Optional reference note — key details extracted from an attached document (up to 500 characters).",
+        },
       },
       required: ["title"],
     },
@@ -79,6 +83,10 @@ export const toolDefinitions: ToolDefinition[] = [
           enum: ["active", "paused", "done"],
           description: "New status for the goal.",
         },
+        note: {
+          type: "string",
+          description: "New reference note for the goal — key details extracted from an attached document (up to 500 characters).",
+        },
       },
       required: ["goal_id"],
     },
@@ -109,6 +117,10 @@ export const toolDefinitions: ToolDefinition[] = [
           description: "Duration of the block in minutes. e.g. 90 for 1.5 hours.",
           minimum: 5,
           maximum: 480,
+        },
+        note: {
+          type: "string",
+          description: "Optional reference note — key details extracted from an attached document, shown when the block starts (up to 500 characters).",
         },
       },
       required: ["title", "scheduled_at", "duration_minutes"],
@@ -159,21 +171,26 @@ export const toolDefinitions: ToolDefinition[] = [
   {
     name: "update_block",
     description:
-      "Change what a block is about — its title. " +
-      "Use this when the user agrees to tackle a smaller or different task during a block.",
+      "Change what a block is about — its title — or attach a reference note to it. " +
+      "Use this when the user agrees to tackle a smaller or different task during a block, " +
+      "or to save key details from an attached document so they are visible when the block starts.",
     input_schema: {
       type: "object",
       properties: {
         block_id: {
           type: "string",
-          description: "The UUID of the block to rename.",
+          description: "The UUID of the block to update.",
         },
         title: {
           type: "string",
           description: "The new task for this block, as a short plain sentence.",
         },
+        note: {
+          type: "string",
+          description: "Reference note shown on the block — key details extracted from an attached document (up to 500 characters).",
+        },
       },
-      required: ["block_id", "title"],
+      required: ["block_id"],
     },
   },
   {
@@ -280,6 +297,10 @@ export function isUUID(value: unknown): boolean {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
 }
 
+function isNote(value: unknown): boolean {
+  return typeof value === "string" && value.length <= 500;
+}
+
 export function validateToolCall(call: ToolCall): ValidationResult {
   const errors: string[] = [];
   const args = call.arguments;
@@ -294,6 +315,9 @@ export function validateToolCall(call: ToolCall): ValidationResult {
       }
       if (args.cadence !== undefined && typeof args.cadence !== "string") {
         errors.push("cadence must be a string");
+      }
+      if (args.note !== undefined && args.note !== null && !isNote(args.note)) {
+        errors.push("note must be a string up to 500 characters");
       }
       break;
     }
@@ -313,6 +337,9 @@ export function validateToolCall(call: ToolCall): ValidationResult {
       if (args.status !== undefined && !["active", "paused", "done"].includes(args.status as string)) {
         errors.push("status must be one of: active, paused, done");
       }
+      if (args.note !== undefined && args.note !== null && !isNote(args.note)) {
+        errors.push("note must be a string up to 500 characters");
+      }
       break;
     }
     case "schedule_block": {
@@ -327,6 +354,9 @@ export function validateToolCall(call: ToolCall): ValidationResult {
       }
       if (args.goal_id !== undefined && !isUUID(args.goal_id)) {
         errors.push("goal_id must be a valid UUID if provided");
+      }
+      if (args.note !== undefined && args.note !== null && !isNote(args.note)) {
+        errors.push("note must be a string up to 500 characters");
       }
       break;
     }
@@ -349,8 +379,16 @@ export function validateToolCall(call: ToolCall): ValidationResult {
       if (!isUUID(args.block_id)) {
         errors.push("block_id is required and must be a valid UUID");
       }
-      if (typeof args.title !== "string" || args.title.trim().length === 0) {
-        errors.push("title is required and must be a non-empty string");
+      const hasTitle = typeof args.title === "string" && args.title.trim().length > 0;
+      const hasNote = args.note !== undefined && args.note !== null;
+      if (!hasTitle && !hasNote) {
+        errors.push("title or note is required");
+      }
+      if (args.title !== undefined && (typeof args.title !== "string" || args.title.trim().length === 0)) {
+        errors.push("title must be a non-empty string");
+      }
+      if (hasNote && !isNote(args.note)) {
+        errors.push("note must be a string up to 500 characters");
       }
       break;
     }

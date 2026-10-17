@@ -102,12 +102,13 @@ async function createGoal(
   const title = args.title as string;
   const deadline = args.deadline as string | undefined;
   const cadence = args.cadence as string | undefined;
+  const note = args.note as string | undefined;
 
   const rows = await query<{ id: string }>(
-    `INSERT INTO goals (user_id, title, deadline, cadence)
-     VALUES ($1, $2, $3, $4)
+    `INSERT INTO goals (user_id, title, deadline, cadence, note)
+     VALUES ($1, $2, $3, $4, $5)
      RETURNING id`,
-    [userId, title, deadline ?? null, cadence ?? null]
+    [userId, title, deadline ?? null, cadence ?? null, note ?? null]
   );
 
   const goalId = rows[0].id;
@@ -121,7 +122,7 @@ async function createGoal(
         table: "goals",
         operation: "insert" as const,
         row_id: goalId,
-        changes: { title, deadline, cadence },
+        changes: { title, deadline, cadence, note },
       },
     },
   };
@@ -153,6 +154,10 @@ async function updateGoal(
   if (args.status !== undefined) {
     updates.push(`status = $${paramIdx++}`);
     params.push(args.status);
+  }
+  if (args.note !== undefined) {
+    updates.push(`note = $${paramIdx++}`);
+    params.push(args.note ?? null);
   }
 
   if (updates.length === 0) {
@@ -204,12 +209,13 @@ async function scheduleBlock(
   const scheduledAt = args.scheduled_at as string;
   const durationMinutes = args.duration_minutes as number;
   const goalId = args.goal_id as string | undefined;
+  const note = args.note as string | undefined;
 
   const rows = await query<{ id: string }>(
-    `INSERT INTO blocks (user_id, goal_id, title, scheduled_at, duration_minutes, status)
-     VALUES ($1, $2, $3, $4, $5, 'scheduled')
+    `INSERT INTO blocks (user_id, goal_id, title, scheduled_at, duration_minutes, status, note)
+     VALUES ($1, $2, $3, $4, $5, 'scheduled', $6)
      RETURNING id`,
-    [userId, goalId ?? null, title, scheduledAt, durationMinutes]
+    [userId, goalId ?? null, title, scheduledAt, durationMinutes, note ?? null]
   );
 
   const blockId = rows[0].id;
@@ -223,7 +229,7 @@ async function scheduleBlock(
         table: "blocks",
         operation: "insert" as const,
         row_id: blockId,
-        changes: { title, scheduled_at: scheduledAt, duration_minutes: durationMinutes, goal_id: goalId },
+        changes: { title, scheduled_at: scheduledAt, duration_minutes: durationMinutes, goal_id: goalId, note },
       },
     },
   };
@@ -402,13 +408,26 @@ async function updateBlock(
   userId: string
 ): Promise<ToolResult> {
   const blockId = args.block_id as string;
-  const title = (args.title as string).trim();
+  const title = (args.title as string | undefined)?.trim();
+  const note = args.note as string | undefined;
+
+  const updates: string[] = [];
+  const params: unknown[] = [blockId, userId];
+  let i = 3;
+  if (title) {
+    updates.push(`title = $${i++}`);
+    params.push(title);
+  }
+  if (note !== undefined) {
+    updates.push(`note = $${i++}`);
+    params.push(note ?? null);
+  }
 
   const rows = await query<{ id: string }>(
-    `UPDATE blocks SET title = $1
-     WHERE id = $2 AND user_id = $3 AND status IN ('scheduled', 'running')
+    `UPDATE blocks SET ${updates.join(", ")}
+     WHERE id = $1 AND user_id = $2 AND status IN ('scheduled', 'running')
      RETURNING id`,
-    [title, blockId, userId]
+    params
   );
 
   if (!rows[0]) {
@@ -419,18 +438,23 @@ async function updateBlock(
     };
   }
 
+  const message = title
+    ? `Block renamed to "${title}".`
+    : "Note saved to the block.";
+
   return {
     tool: "update_block",
     success: true,
-    message: `Block renamed to "${title}".`,
+    message,
     data: {
       block_id: blockId,
-      title,
+      ...(title ? { title } : {}),
+      ...(note !== undefined ? { note: note ?? null } : {}),
       rowChange: {
         table: "blocks",
         operation: "update" as const,
         row_id: blockId,
-        changes: { title },
+        changes: { ...(title ? { title } : {}), ...(note !== undefined ? { note } : {}) },
       },
     },
   };
