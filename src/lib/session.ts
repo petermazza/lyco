@@ -7,6 +7,7 @@ export interface CurrentUser {
   email: string;
   name: string | null;
   timezone: string | null;
+  preferredModel: string | null;
 }
 
 export async function getCurrentUser(): Promise<CurrentUser | null> {
@@ -22,8 +23,8 @@ export async function getCurrentUser(): Promise<CurrentUser | null> {
   if (!session) return null;
 
   const { query } = await import("./db");
-  const users = await query<{ name: string | null; timezone: string | null }>(
-    `SELECT name, timezone FROM users WHERE id = $1`,
+  const users = await query<{ name: string | null; timezone: string | null; preferred_model: string | null }>(
+    `SELECT name, timezone, preferred_model FROM users WHERE id = $1`,
     [session.userId]
   );
 
@@ -32,5 +33,6 @@ export async function getCurrentUser(): Promise<CurrentUser | null> {
     email: session.email,
     name: users[0]?.name ?? null,
     timezone: users[0]?.timezone ?? null,
+    preferredModel: users[0]?.preferred_model ?? null,
   };
 }

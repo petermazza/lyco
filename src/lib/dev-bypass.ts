@@ -31,16 +31,17 @@ export async function getDevUser(): Promise<{
   email: string;
   name: string | null;
   timezone: string | null;
+  preferredModel: string | null;
 } | null> {
   if (!isDevBypassEnabled() || !DEV_USER_ID) return null;
 
-  const rows = await query<{ id: string; email: string; name: string | null; timezone: string | null }>(
-    `SELECT id, email, name, timezone FROM users WHERE id = $1`,
+  const rows = await query<{ id: string; email: string; name: string | null; timezone: string | null; preferred_model: string | null }>(
+    `SELECT id, email, name, timezone, preferred_model FROM users WHERE id = $1`,
     [DEV_USER_ID]
   );
 
   if (rows[0]) {
-    return { userId: rows[0].id, email: rows[0].email, name: rows[0].name, timezone: rows[0].timezone };
+    return { userId: rows[0].id, email: rows[0].email, name: rows[0].name, timezone: rows[0].timezone, preferredModel: rows[0].preferred_model };
   }
 
   const created = await query<{ id: string; email: string; name: string | null }>(
@@ -52,15 +53,15 @@ export async function getDevUser(): Promise<{
 
   if (created[0]) {
     console.log(`[dev-bypass] Created dev user: ${created[0].email} (${created[0].id})`);
-    return { userId: created[0].id, email: created[0].email, name: created[0].name, timezone: null };
+    return { userId: created[0].id, email: created[0].email, name: created[0].name, timezone: null, preferredModel: null };
   }
 
-  const retry = await query<{ id: string; email: string; name: string | null; timezone: string | null }>(
-    `SELECT id, email, name, timezone FROM users WHERE id = $1`,
+  const retry = await query<{ id: string; email: string; name: string | null; timezone: string | null; preferred_model: string | null }>(
+    `SELECT id, email, name, timezone, preferred_model FROM users WHERE id = $1`,
     [DEV_USER_ID]
   );
 
   return retry[0]
-    ? { userId: retry[0].id, email: retry[0].email, name: retry[0].name, timezone: retry[0].timezone }
+    ? { userId: retry[0].id, email: retry[0].email, name: retry[0].name, timezone: retry[0].timezone, preferredModel: retry[0].preferred_model }
     : null;
 }

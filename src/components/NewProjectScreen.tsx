@@ -10,6 +10,12 @@ interface Message {
   isAsk?: boolean;
 }
 
+interface ModelOption {
+  id: string;
+  label: string;
+  blurb: string;
+}
+
 export function NewProjectScreen() {
   const searchParams = useSearchParams();
   const router = useRouter();
@@ -21,8 +27,19 @@ export function NewProjectScreen() {
   const [loading, setLoading] = useState(false);
   const [goalCreated, setGoalCreated] = useState(false);
   const [goalId, setGoalId] = useState<string | null>(null);
+  const [model, setModel] = useState<string | null>(null);
+  const [models, setModels] = useState<ModelOption[]>([]);
+  const [picking, setPicking] = useState(false);
+  const [toast, setToast] = useState<string | null>(null);
+  const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  const showToast = useCallback((msg: string) => {
+    if (toastTimer.current) clearTimeout(toastTimer.current);
+    setToast(msg);
+    toastTimer.current = setTimeout(() => setToast(null), 2800);
+  }, []);
 
   useEffect(() => {
     const el = scrollRef.current;
@@ -40,12 +57,41 @@ export function NewProjectScreen() {
           return;
         }
         setAuthed(true);
+        // Fetch the model lineup for the picker
+        fetch("/api/user/model")
+          .then((r) => (r.ok ? r.json() : null))
+          .then((body) => {
+            if (body?.model) setModel(body.model);
+            if (Array.isArray(body?.models)) setModels(body.models);
+          })
+          .catch(() => {});
       })
       .catch(() => {
         setAuthed(false);
       })
       .finally(() => clearTimeout(timeoutId));
   }, [router]);
+
+  const pickModel = useCallback(async (id: string) => {
+    setPicking(false);
+    try {
+      const res = await fetch("/api/user/model", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ model: id }),
+      });
+      const json = await res.json();
+      if (!res.ok) {
+        showToast(json.error ?? "something went wrong. try again.");
+        return;
+      }
+      setModel(json.model);
+      const label = models.find((m) => m.id === json.model)?.label ?? json.model;
+      showToast(`using ${label.toLowerCase()} now.`);
+    } catch {
+      showToast("something went wrong. try again.");
+    }
+  }, [models, showToast]);
 
   const sentRef = useRef(false);
   useEffect(() => {
@@ -203,6 +249,15 @@ export function NewProjectScreen() {
               {goalCreated ? "goal saved" : "in conversation"}
             </div>
           </div>
+          {model && (
+            <button
+              className="btn btn-ghost"
+              style={{ fontSize: 13, minHeight: 44, flex: "none" }}
+              onClick={() => setPicking(true)}
+            >
+              model: {models.find((m) => m.id === model)?.label ?? model}
+            </button>
+          )}
         </div>
 
         <form onSubmit={handleSubmit} style={{ display: "flex", alignItems: "center", gap: "var(--space-3)", marginTop: "var(--space-2)" }}>
@@ -229,6 +284,70 @@ export function NewProjectScreen() {
           </button>
         </form>
       </div>
+
+      {/* model picker sheet */}
+      {picking && (
+        <div
+          style={{ position: "absolute", inset: 0, zIndex: 50, background: "color-mix(in srgb, #0b0d16 62%, transparent)", display: "flex", flexDirection: "column", justifyContent: "flex-end" }}
+          onClick={() => setPicking(false)}
+        >
+          <div
+            style={{
+              background: "var(--color-surface)",
+              borderRadius: "var(--radius-lg) var(--radius-lg) 0 0",
+              padding: "var(--space-6) var(--space-6) var(--space-8)",
+              animation: "noct-sheet 220ms cubic-bezier(.2,.8,.3,1)",
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div style={{ width: 34, height: 4, borderRadius: 2, background: "color-mix(in srgb, var(--color-text) 18%, transparent)", margin: "0 auto var(--space-6)" }} />
+            <div style={{ fontFamily: "var(--font-heading)", fontWeight: 500, fontSize: 18, marginBottom: "var(--space-2)" }}>Which model should answer?</div>
+            <div style={{ fontSize: 13, color: "var(--app-text-muted)", marginBottom: "var(--space-6)" }}>
+              if one is acting up, another can take over.
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-3)" }}>
+              {models.map((m) => (
+                <button
+                  key={m.id}
+                  className="btn btn-secondary"
+                  style={{
+                    justifyContent: "space-between",
+                    minHeight: 48,
+                    fontSize: "var(--app-size-body)",
+                    width: "100%",
+                    outline: m.id === model ? "1px solid var(--color-accent)" : undefined,
+                  }}
+                  onClick={() => pickModel(m.id)}
+                >
+                  <span>{m.label}{m.id === model ? " · now" : ""}</span>
+                  <span style={{ fontSize: 12, color: "var(--app-text-quiet)", fontWeight: 400 }}>{m.blurb}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* toast */}
+      {toast && (
+        <div
+          style={{
+            position: "absolute",
+            left: 18,
+            right: 18,
+            bottom: 44,
+            zIndex: 60,
+            background: "var(--color-surface)",
+            borderRadius: "var(--radius-md)",
+            padding: "12px 14px",
+            fontSize: 13,
+            border: "1px solid var(--app-hairline)",
+            animation: "noct-fade 240ms ease both",
+          }}
+        >
+          {toast}
+        </div>
+      )}
     </div>
   );
 }

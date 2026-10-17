@@ -16,6 +16,27 @@ export interface LLMResponse {
   toolResults: ToolResult[];
   rowChanges: RowChange[];
   rawResponse: unknown;
+  model: string;
+}
+
+// ─── Model lineup ────────────────────────────────────────────
+// The models a user can pick from, in fallback order. Add a new
+// Claude model here when it ships — the picker and the fallback
+// chain pick it up automatically.
+export interface ChatModel {
+  id: string;
+  label: string;
+  blurb: string;
+}
+export const CHAT_MODELS: ChatModel[] = [
+  { id: "claude-sonnet-5", label: "Sonnet", blurb: "balanced — the everyday default" },
+  { id: "claude-opus-5", label: "Opus", blurb: "strongest reasoning — slower" },
+  { id: "claude-haiku-5-5", label: "Haiku", blurb: "fastest and lightest" },
+];
+export const DEFAULT_MODEL = CHAT_MODELS[0].id;
+
+export function isChatModel(id: unknown): id is string {
+  return typeof id === "string" && CHAT_MODELS.some((m) => m.id === id);
 }
 
 // ─── Client ──────────────────────────────────────────────────
@@ -28,7 +49,6 @@ function getClient(): Anthropic {
   return _client;
 }
 
-const MODEL = "claude-sonnet-5";
 const MAX_TOOL_ROUNDS = 5;
 
 const SYSTEM_PROMPT = `You are lyco, a personal accountability assistant. You help the user set goals, schedule time blocks, and stay on track.
@@ -47,10 +67,38 @@ Never generate SQL. Never claim to have done something without calling the appro
 
 // ─── Main entry point ────────────────────────────────────────
 
+// Try the user's preferred model first, then walk the lineup in order.
+// A model switch is only safe before any tool has run — once a tool has
+// committed a change, retrying the conversation on another model could
+// run it twice, so a mid-conversation failure just throws.
 export async function callLLM(
   messages: ChatMessage[],
   userId: string,
-  context?: string
+  context?: string,
+  preferredModel?: string
+): Promise<LLMResponse> {
+  const candidates = [preferredModel, ...CHAT_MODELS.map((m) => m.id)].filter(
+    (m, i, arr): m is string => typeof m === "string" && arr.indexOf(m) === i
+  );
+
+  let lastError: unknown;
+  for (const model of candidates) {
+    try {
+      return await runConversation(messages, userId, context, model);
+    } catch (err) {
+      if ((err as { toolsRan?: boolean }).toolsRan) throw err;
+      console.warn(`[llm] model ${model} failed, trying next:`, err);
+      lastError = err;
+    }
+  }
+  throw lastError;
+}
+
+async function runConversation(
+  messages: ChatMessage[],
+  userId: string,
+  context: string | undefined,
+  model: string
 ): Promise<LLMResponse> {
   const anthropicMessages = messages.map((m) => ({
     role: m.role as "user" | "assistant",
@@ -64,17 +112,25 @@ export async function callLLM(
   let rawResponse: unknown = null;
 
   for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
-    const response = await getClient().messages.create({
-      model: MODEL,
-      max_tokens: 1024,
-      system: context ? `${SYSTEM_PROMPT}\n\n${context}` : SYSTEM_PROMPT,
-      messages: anthropicMessages,
-      tools: toolDefinitions.map((t) => ({
-        name: t.name,
-        description: t.description,
-        input_schema: t.input_schema,
-      })),
-    });
+    let response: Anthropic.Message;
+    try {
+      response = await getClient().messages.create({
+        model,
+        max_tokens: 1024,
+        system: context ? `${SYSTEM_PROMPT}\n\n${context}` : SYSTEM_PROMPT,
+        messages: anthropicMessages,
+        tools: toolDefinitions.map((t) => ({
+          name: t.name,
+          description: t.description,
+          input_schema: t.input_schema,
+        })),
+      });
+    } catch (err) {
+      throw Object.assign(
+        err instanceof Error ? err : new Error(String(err)),
+        { toolsRan: allToolCalls.length > 0 }
+      );
+    }
 
     rawResponse = response;
 
@@ -107,7 +163,15 @@ export async function callLLM(
       arguments: b.input,
     }));
 
-    const execResult = await executeTools(calls, userId);
+    let execResult: Awaited<ReturnType<typeof executeTools>>;
+    try {
+      execResult = await executeTools(calls, userId);
+    } catch (err) {
+      throw Object.assign(
+        err instanceof Error ? err : new Error(String(err)),
+        { toolsRan: true }
+      );
+    }
     allToolCalls.push(...calls);
     allToolResults.push(...execResult.results);
     allRowChanges.push(...execResult.rowChanges);
@@ -136,6 +200,7 @@ export async function callLLM(
     toolResults: allToolResults,
     rowChanges: allRowChanges,
     rawResponse,
+    model,
   };
 }
 
@@ -145,7 +210,7 @@ export async function callLLM(
 
 export async function generateText(prompt: string): Promise<string> {
   const response = await getClient().messages.create({
-    model: MODEL,
+    model: DEFAULT_MODEL,
     max_tokens: 200,
     system:
       "You are lyco, a personal accountability assistant. Write one or two short sentences, warm but direct, " +

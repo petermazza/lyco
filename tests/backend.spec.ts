@@ -29,6 +29,7 @@ function envVar(name: string): string {
 // dev server uses.
 process.env.DATABASE_URL ||= dbUrl();
 process.env.AUTH_SECRET ||= envVar("AUTH_SECRET") || "dev-secret";
+process.env.ANTHROPIC_API_KEY ||= envVar("ANTHROPIC_API_KEY");
 
 async function withDb<T>(fn: (c: pg.Client) => Promise<T>): Promise<T> {
   const client = new pg.Client({ connectionString: dbUrl() });
@@ -1634,6 +1635,92 @@ test.describe.serial("reminder sweep: 1-day occasion", () => {
     // Same sweep again → the reminder row dedupes it
     const again = runRemind({ only: email, at: kiritimatiNoon });
     expect(again.filter((r) => r.title === "Tomorrow thing")).toHaveLength(0);
+    await ctx.dispose();
+  });
+});
+
+// ─── Model choice ────────────────────────────────────────────
+
+test.describe.serial("model choice", () => {
+  test("GET /api/user/model returns the lineup and the default", async () => {
+    const anon = await apiRequest.newContext();
+    expect((await anon.get(`${BASE}/api/user/model`)).status()).toBe(401);
+    await anon.dispose();
+
+    const ctx = await loginCtx(`model-${Date.now()}@lyco.test`);
+    const res = await ctx.get(`${BASE}/api/user/model`);
+    expect(res.status()).toBe(200);
+    const body = await res.json();
+    expect(body.model).toBe("claude-sonnet-5");
+    expect(body.models).toHaveLength(3);
+    expect(body.models.map((m: { id: string }) => m.id)).toEqual([
+      "claude-sonnet-5", "claude-opus-5", "claude-haiku-5-5",
+    ]);
+    await ctx.dispose();
+  });
+
+  test("POST /api/user/model validates, stores, and can reset", async () => {
+    const ctx = await loginCtx(`model-set-${Date.now()}@lyco.test`);
+
+    for (const model of ["gpt-4", "claude-fake", 42, null + "x", ""]) {
+      const res = await ctx.post(`${BASE}/api/user/model`, { data: { model } });
+      expect(res.status(), String(model)).toBe(400);
+    }
+
+    const ok = await ctx.post(`${BASE}/api/user/model`, { data: { model: "claude-opus-5" } });
+    expect(ok.status()).toBe(200);
+    await expect((await ctx.get(`${BASE}/api/user/model`)).json()).resolves.toMatchObject({ model: "claude-opus-5" });
+
+    const stored = await withDb(async (c) =>
+      (await c.query(
+        `SELECT preferred_model FROM users WHERE email LIKE 'model-set-%@lyco.test' ORDER BY created_at DESC LIMIT 1`
+      )).rows[0].preferred_model
+    );
+    expect(stored).toBe("claude-opus-5");
+
+    const reset = await ctx.post(`${BASE}/api/user/model`, { data: { model: "default" } });
+    expect(reset.status()).toBe(200);
+    await expect((await ctx.get(`${BASE}/api/user/model`)).json()).resolves.toMatchObject({ model: "claude-sonnet-5" });
+    await ctx.dispose();
+  });
+
+  test("chat uses the user's chosen model and logs it", async () => {
+    const email = `model-chat-${Date.now()}@lyco.test`;
+    const ctx = await loginCtx(email);
+    await ctx.post(`${BASE}/api/user/model`, { data: { model: "claude-haiku-5-5" } });
+
+    const res = await ctx.post(`${BASE}/api/chat`, {
+      data: { messages: [{ role: "user", content: "Just say hi." }] },
+    });
+    expect(res.status()).toBe(200);
+    expect((await res.json()).model).toBe("claude-haiku-5-5");
+
+    const logged = await withDb(async (c) =>
+      (await c.query(
+        `SELECT model FROM llm_interactions
+         WHERE user_id = (SELECT id FROM users WHERE email = $1)
+         ORDER BY created_at DESC LIMIT 1`, [email]
+      )).rows[0].model
+    );
+    expect(logged).toBe("claude-haiku-5-5");
+    await ctx.dispose();
+  });
+
+  test("a broken preferred model falls back to the lineup", async () => {
+    const ctx = await loginCtx(`model-fallback-${Date.now()}@lyco.test`);
+    const me = await (await ctx.get(`${BASE}/api/auth/me`)).json();
+
+    // Preferred model id that does not exist — callLLM should slide to
+    // the next working model instead of erroring.
+    const { callLLM } = await import("../src/lib/llm");
+    const res = await callLLM(
+      [{ role: "user", content: "Just say hi." }],
+      me.user.id,
+      undefined,
+      "claude-nonexistent-9"
+    );
+    expect(res.model).toBe("claude-sonnet-5");
+    expect(res.text.length).toBeGreaterThan(0);
     await ctx.dispose();
   });
 });

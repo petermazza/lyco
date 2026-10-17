@@ -865,3 +865,48 @@ test.describe.serial("Reminder unsubscribe page", () => {
     expect(await reminderEmailsOn(uid)).toBe(true);
   });
 });
+
+// ─── Model picker ────────────────────────────────────────────
+
+test.describe.serial("Model picker", () => {
+  test("the model chip opens the lineup and a pick sticks", async ({ page }) => {
+    await gotoFreshUser(page, "/new");
+
+    // The chip sits in the footer next to Status
+    const chip = page.getByRole("button", { name: /model:/ });
+    await expect(chip).toBeVisible();
+    await expect(chip).toContainText("Sonnet");
+    await chip.click();
+
+    await expect(page.getByText("Which model should answer?")).toBeVisible();
+    await expect(page.getByRole("button", { name: /Sonnet · now/ })).toBeVisible();
+    await expect(page.getByRole("button", { name: /Opus/ })).toBeVisible();
+    await expect(page.getByRole("button", { name: /Haiku/ })).toBeVisible();
+
+    await page.getByRole("button", { name: /Opus/ }).click();
+    await expect(page.getByText("using opus now.")).toBeVisible();
+    await expect(chip).toContainText("Opus");
+
+    // The choice survives a reload — it is stored on the account
+    await page.reload();
+    await page.waitForLoadState("networkidle");
+    await page.waitForTimeout(500);
+    await expect(page.getByRole("button", { name: /model: Opus/ })).toBeVisible();
+  });
+
+  test("a failed model save reports instead of pretending", async ({ page }) => {
+    await gotoFreshUser(page, "/new");
+    await page.route("**/api/user/model", (route) => {
+      if (route.request().method() === "POST") {
+        route.fulfill({ status: 500, json: { error: "nope" } });
+      } else {
+        route.continue();
+      }
+    });
+    await page.getByRole("button", { name: /model:/ }).click();
+    await page.getByRole("button", { name: /Opus/ }).click();
+    await expect(page.getByText("nope")).toBeVisible();
+    // The chip still shows the old pick
+    await expect(page.getByRole("button", { name: /model: Sonnet/ })).toBeVisible();
+  });
+});

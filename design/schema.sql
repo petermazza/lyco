@@ -16,6 +16,10 @@ ALTER TABLE users ADD COLUMN IF NOT EXISTS timezone TEXT;
 
 ALTER TABLE users ADD COLUMN IF NOT EXISTS reminder_emails BOOLEAN NOT NULL DEFAULT true;
 
+-- The Claude model this user prefers for conversations.
+-- NULL means the app default.
+ALTER TABLE users ADD COLUMN IF NOT EXISTS preferred_model TEXT;
+
 -- ─── Magic link tokens ──────────────────────────────────────
 CREATE TABLE IF NOT EXISTS magic_link_tokens (
   id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),

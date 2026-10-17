@@ -30,14 +30,15 @@ export async function POST(req: NextRequest) {
   const context = typeof body.context === "string" ? body.context : undefined;
 
   try {
-    const response = await callLLM(messages, user.userId, context);
+    const response = await callLLM(messages, user.userId, context, user.preferredModel ?? undefined);
 
-    await logInteraction(user.userId, sessionId, messages, response, "claude-sonnet-5");
+    await logInteraction(user.userId, sessionId, messages, response, response.model);
 
     return NextResponse.json({
       text: response.text,
       toolCalls: response.toolCalls,
       toolResults: response.toolResults,
+      model: response.model,
     });
   } catch (err) {
     console.error("Chat API error:", err);
