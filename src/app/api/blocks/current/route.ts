@@ -25,7 +25,7 @@ export async function GET() {
             g.title AS goal_title,
             COALESCE(b.note, g.note) AS note
      FROM blocks b
-     LEFT JOIN goals g ON g.id = b.goal_id
+     LEFT JOIN goals g ON g.id = b.goal_id AND g.user_id = b.user_id
      WHERE b.user_id = $1
        AND (
          b.status = 'running'

@@ -29,13 +29,14 @@ export function getOAuthClient(redirectUri: string) {
   return new google.auth.OAuth2(clientId, clientSecret, redirectUri);
 }
 
-export function getAuthUrl(redirectUri: string): string {
+export function getAuthUrl(redirectUri: string, state: string): string {
   const oauthClient = getOAuthClient(redirectUri);
   const scopes = ["https://www.googleapis.com/auth/calendar"];
   return oauthClient.generateAuthUrl({
     access_type: "offline",
     scope: scopes,
     prompt: "consent",
+    state,
   });
 }
 

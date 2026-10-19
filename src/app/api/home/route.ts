@@ -97,7 +97,7 @@ export async function GET() {
     `SELECT b.id, b.title, b.scheduled_at, b.duration_minutes, b.status, b.progress,
             COALESCE(b.note, g.note) AS note
      FROM blocks b
-     LEFT JOIN goals g ON g.id = b.goal_id
+     LEFT JOIN goals g ON g.id = b.goal_id AND g.user_id = b.user_id
      WHERE b.user_id = $1
        AND b.scheduled_at >= $2 AND b.scheduled_at < $3
        AND b.status IN ('scheduled', 'running', 'missed')

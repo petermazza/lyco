@@ -122,10 +122,14 @@ export function HomeScreen() {
   const handleDone = useCallback(async () => {
     if (!data?.currentBlock) return;
     const blockId = data.currentBlock.id;
-    showToast("kept.");
-    setData((d) => d ? { ...d, currentBlock: null, laterToday: d.laterToday.slice(1) } : d);
     try {
-      await fetch(`/api/blocks/${blockId}/done`, { method: "POST" });
+      const res = await fetch(`/api/blocks/${blockId}/done`, { method: "POST" });
+      if (!res.ok) {
+        showToast("something went wrong. try again.");
+        return;
+      }
+      showToast("kept.");
+      setData((d) => d ? { ...d, currentBlock: null, laterToday: d.laterToday.slice(1) } : d);
       fetchData();
     } catch {
       showToast("something went wrong. try again.");
@@ -142,6 +146,10 @@ export function HomeScreen() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ target }),
       });
+      if (!res.ok) {
+        showToast("something went wrong. try again.");
+        return;
+      }
       const json = await res.json();
       if (json.message) showToast(json.message);
       if (target === "drop") {

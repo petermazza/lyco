@@ -16,7 +16,15 @@ export interface SendResult {
 export async function sendEmail(to: string, subject: string, html: string): Promise<SendResult> {
   const apiKey = process.env.RESEND_API_KEY;
 
-  if (!apiKey || isFakeAddress(to)) {
+  if (!apiKey) {
+    if (process.env.NODE_ENV === "production") {
+      throw new Error("RESEND_API_KEY is required in production");
+    }
+    console.log(`[email] ${to}: ${subject}`);
+    return { sent: false, loggedOnly: true };
+  }
+
+  if (isFakeAddress(to)) {
     console.log(`[email] ${to}: ${subject}`);
     return { sent: false, loggedOnly: true };
   }
@@ -30,6 +38,7 @@ export async function sendEmail(to: string, subject: string, html: string): Prom
       "Content-Type": "application/json",
     },
     body: JSON.stringify({ from, to, subject, html }),
+    signal: AbortSignal.timeout(10000),
   });
 
   if (!res.ok) {

@@ -63,7 +63,7 @@ test("home shows sign-in form when not authenticated", async ({ page, context })
   await page.waitForLoadState("networkidle");
   await page.waitForTimeout(1000);
 
-  await expect(page.getByText("lyco")).toBeVisible();
+  await expect(page.locator("div").filter({ hasText: /^lyco$/ })).toBeVisible();
   await expect(page.getByPlaceholder("your email")).toBeVisible();
   await expect(page.getByRole("button", { name: "Sign in" })).toBeVisible();
 });

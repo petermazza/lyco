@@ -254,11 +254,20 @@ async function deliver(args: DeliverArgs, sent: ReminderSent[]): Promise<void> {
   sent.push(record);
 }
 
+function escapeHtml(s: string): string {
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
 function reminderHtml(line: string, userId: string): string {
   const home = appUrl();
   const unsub = `${home}/api/user/reminders?u=${userId}&sig=${unsubscribeSignature(userId)}`;
   return [
-    `<p>${line}</p>`,
+    `<p>${escapeHtml(line)}</p>`,
     `<p><a href="${home}">Open lyco</a></p>`,
     `<p style="color:#888;font-size:12px"><a href="${unsub}">stop these emails</a></p>`,
   ].join("");

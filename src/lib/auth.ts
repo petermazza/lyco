@@ -2,7 +2,10 @@ import crypto from "crypto";
 import { query } from "./db";
 
 const AUTH_SECRET = process.env.AUTH_SECRET ?? "dev-secret";
-if (!process.env.AUTH_SECRET && process.env.NODE_ENV === "production") {
+if (!process.env.AUTH_SECRET) {
+  if (process.env.NODE_ENV === "production") {
+    throw new Error("AUTH_SECRET is required in production");
+  }
   console.warn("[auth] AUTH_SECRET is not set — using insecure default. Set it in your environment.");
 }
 if (!process.env.NEXT_PUBLIC_APP_URL && process.env.NODE_ENV === "production") {
@@ -52,39 +55,28 @@ export async function createMagicLink(email: string): Promise<{ token: string; l
 export async function verifyMagicLink(token: string): Promise<{ userId: string; email: string } | null> {
   const tokenHash = hashToken(token);
 
-  const rows = await query<{ id: string; email: string; used_at: string | null; expires_at: string }>(
-    `SELECT id, email, used_at, expires_at
-     FROM magic_link_tokens
-     WHERE token_hash = $1`,
+  // Consume the token atomically — two simultaneous requests for the same
+  // link must not both mint sessions.
+  const rows = await query<{ email: string }>(
+    `UPDATE magic_link_tokens SET used_at = now()
+     WHERE token_hash = $1 AND used_at IS NULL AND expires_at > now()
+     RETURNING email`,
     [tokenHash]
   );
 
   const row = rows[0];
   if (!row) return null;
-  if (row.used_at) return null;
-  if (new Date(row.expires_at) < new Date()) return null;
 
-  // Mark token as used
-  await query(`UPDATE magic_link_tokens SET used_at = now() WHERE id = $1`, [row.id]);
-
-  // Find or create user
-  const existing = await query<{ id: string }>(
-    `SELECT id FROM users WHERE email = $1`,
+  // Find or create user in one statement so concurrent first logins
+  // don't race on INSERT.
+  const created = await query<{ id: string }>(
+    `INSERT INTO users (email) VALUES ($1)
+     ON CONFLICT (email) DO UPDATE SET email = EXCLUDED.email
+     RETURNING id`,
     [row.email]
   );
 
-  let userId: string;
-  if (existing[0]) {
-    userId = existing[0].id;
-  } else {
-    const created = await query<{ id: string }>(
-      `INSERT INTO users (email) VALUES ($1) RETURNING id`,
-      [row.email]
-    );
-    userId = created[0].id;
-  }
-
-  return { userId, email: row.email };
+  return { userId: created[0].id, email: row.email };
 }
 
 // ─── Session management ──────────────────────────────────────

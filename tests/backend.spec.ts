@@ -13,8 +13,10 @@ const BASE = "http://localhost:3001";
 
 function dbUrl(): string {
   const env = readFileSync(".env.local", "utf-8");
+  const test = env.match(/^TEST_DATABASE_URL=["']?(.+?)["']?\s*$/m);
+  if (test) return test[1];
   const match = env.match(/^DATABASE_URL=["']?(.+?)["']?\s*$/m);
-  if (!match) throw new Error("DATABASE_URL not found in .env.local");
+  if (!match) throw new Error("TEST_DATABASE_URL or DATABASE_URL not found in .env.local");
   return match[1];
 }
 
@@ -1278,10 +1280,20 @@ test.describe.serial("calendar endpoints", () => {
     const denied = await auth.get(`${BASE}/api/calendar/callback?error=access_denied`, { maxRedirects: 0 });
     expect(denied.headers()["location"]).toContain("error=access_denied");
 
-    const noCode = await auth.get(`${BASE}/api/calendar/callback`, { maxRedirects: 0 });
+    // A callback whose state doesn't match the connect-time cookie is
+    // rejected before any code exchange happens.
+    const badState = await auth.get(`${BASE}/api/calendar/callback?code=x&state=forged`, { maxRedirects: 0 });
+    expect(badState.headers()["location"]).toContain("error=oauth_state");
+
+    // Start a real connect so the context holds a valid state cookie.
+    const connect = await auth.get(`${BASE}/api/calendar/connect`);
+    const { authUrl } = await connect.json();
+    const state = new URL(authUrl).searchParams.get("state")!;
+
+    const noCode = await auth.get(`${BASE}/api/calendar/callback?state=${state}`, { maxRedirects: 0 });
     expect(noCode.headers()["location"]).toContain("error=no_code");
 
-    const badCode = await auth.get(`${BASE}/api/calendar/callback?code=not-a-real-code`, { maxRedirects: 0 });
+    const badCode = await auth.get(`${BASE}/api/calendar/callback?code=not-a-real-code&state=${state}`, { maxRedirects: 0 });
     expect(badCode.headers()["location"]).toContain("error=oauth_failed");
     await auth.dispose();
   });

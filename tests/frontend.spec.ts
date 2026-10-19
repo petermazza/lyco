@@ -12,7 +12,8 @@ function envVar(name: string): string {
   const match = env.match(new RegExp(`^${name}=["']?(.+?)["']?\\s*$`, "m"));
   return match ? match[1] : "";
 }
-process.env.DATABASE_URL ||= envVar("DATABASE_URL");
+const testDbUrl = () => envVar("TEST_DATABASE_URL") || envVar("DATABASE_URL");
+process.env.DATABASE_URL ||= testDbUrl();
 process.env.AUTH_SECRET ||= envVar("AUTH_SECRET") || "dev-secret";
 
 async function reseed() {
@@ -20,7 +21,7 @@ async function reseed() {
 }
 
 async function reminderEmailsOn(userId: string): Promise<boolean> {
-  const client = new pg.Client({ connectionString: envVar("DATABASE_URL") });
+  const client = new pg.Client({ connectionString: testDbUrl() });
   await client.connect();
   try {
     const rows = (await client.query(
@@ -440,7 +441,7 @@ test.describe.serial("Login screen", () => {
     );
     await page.goto("/");
     await page.waitForLoadState("networkidle");
-    await expect(page.getByText("lyco")).toBeVisible();
+    await expect(page.locator("div").filter({ hasText: /^lyco$/ })).toBeVisible();
     await expect(page.getByText(/personal accountability/i)).toBeVisible();
     await expect(page.getByRole("button", { name: "Sign in" })).toBeVisible();
     await expect(page.locator("input[name='email']")).toBeVisible();
@@ -1052,7 +1053,7 @@ test.describe.serial("Side chat", () => {
 // ─── Attachments ─────────────────────────────────────────────
 
 async function withDb<T>(fn: (c: pg.Client) => Promise<T>): Promise<T> {
-  const client = new pg.Client({ connectionString: envVar("DATABASE_URL") });
+  const client = new pg.Client({ connectionString: testDbUrl() });
   await client.connect();
   try {
     return await fn(client);

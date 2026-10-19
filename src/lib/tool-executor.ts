@@ -211,6 +211,20 @@ async function scheduleBlock(
   const goalId = args.goal_id as string | undefined;
   const note = args.note as string | undefined;
 
+  if (goalId) {
+    const owned = await query<{ id: string }>(
+      `SELECT id FROM goals WHERE id = $1 AND user_id = $2`,
+      [goalId, userId]
+    );
+    if (!owned[0]) {
+      return {
+        tool: "schedule_block",
+        success: false,
+        message: "Goal not found",
+      };
+    }
+  }
+
   const rows = await query<{ id: string }>(
     `INSERT INTO blocks (user_id, goal_id, title, scheduled_at, duration_minutes, status, note)
      VALUES ($1, $2, $3, $4, $5, 'scheduled', $6)

@@ -23,7 +23,7 @@ if (DEV_USER_ID) {
 }
 
 export function isDevBypassEnabled(): boolean {
-  return !!DEV_USER_ID && NODE_ENV !== "production";
+  return !!DEV_USER_ID && NODE_ENV === "development";
 }
 
 export async function getDevUser(): Promise<{
