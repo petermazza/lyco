@@ -1,3 +1,4 @@
+import { redeemMagicLink } from "./auth-helpers";
 import { test, expect, type Page, request as apiRequest } from "@playwright/test";
 import { execSync } from "child_process";
 import { readFileSync } from "fs";
@@ -43,7 +44,7 @@ async function gotoHome(page: Page) {
   await ctx.dispose();
 
   // Visit verify link to set session cookie, then redirect to home
-  await page.goto(body.link);
+  await redeemMagicLink(page, body.link);
   await page.waitForLoadState("networkidle");
   await page.waitForTimeout(2000);
 }
@@ -56,7 +57,7 @@ async function gotoAuthenticated(page: Page, path: string) {
   const body = await res.json();
   await ctx.dispose();
 
-  await page.goto(body.link);
+  await redeemMagicLink(page, body.link);
   await page.waitForLoadState("networkidle");
   await page.waitForTimeout(1500);
   await page.goto(path);
@@ -72,7 +73,7 @@ async function gotoFreshUser(page: Page, path: string): Promise<string> {
   const body = await res.json();
   await ctx.dispose();
 
-  await page.goto(body.link);
+  await redeemMagicLink(page, body.link);
   await page.waitForLoadState("networkidle");
   await page.waitForTimeout(1500);
   const me = await (await page.request.get(`${BASE}/api/auth/me`)).json();
@@ -112,7 +113,7 @@ test.describe.serial("Home screen", () => {
     await gotoHome(page);
     await expect(page.getByText("right now")).toBeVisible();
     await expect(page.getByText("Draft the SimpleFIN adapter")).toBeVisible();
-    await expect(page.getByText(/90 minutes.*until.*calendar/)).toBeVisible();
+    await expect(page.getByText(/90 minutes · until/)).toBeVisible();
   });
 
   test("shows progress bar and elapsed time", async ({ page }) => {
@@ -581,7 +582,7 @@ test.describe.serial("Still open from earlier", () => {
     });
     const body = await res.json();
     await ctx.dispose();
-    await page.goto(body.link);
+    await redeemMagicLink(page, body.link);
     await page.waitForLoadState("networkidle");
 
     // Plant a block that ended an hour ago — past the grace period
@@ -616,7 +617,7 @@ test.describe.serial("Still open from earlier", () => {
     });
     const body = await res.json();
     await ctx.dispose();
-    await page.goto(body.link);
+    await redeemMagicLink(page, body.link);
     await page.waitForLoadState("networkidle");
 
     const title = `MissedDone-${Date.now()}`;
@@ -641,7 +642,7 @@ test.describe.serial("Still open from earlier", () => {
     });
     const body = await res.json();
     await ctx.dispose();
-    await page.goto(body.link);
+    await redeemMagicLink(page, body.link);
     await page.waitForLoadState("networkidle");
 
     const title = `MissedTom-${Date.now()}`;

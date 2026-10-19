@@ -1,3 +1,4 @@
+import { redeemMagicLink } from "./auth-helpers";
 import { test, expect, request as apiRequest } from "@playwright/test";
 import { execSync } from "child_process";
 import { readFileSync } from "fs";
@@ -121,8 +122,8 @@ test.describe("Email integration", () => {
       data: { email: "email-session@lyco.test" },
     });
     const body = await res.json();
-    const verifyRes = await ctx.get(body.link, { maxRedirects: 0 });
-    expect([200, 307]).toContain(verifyRes.status());
+    const verifyRes = await ctx.post(body.link, { maxRedirects: 0 });
+    expect([200, 303, 307]).toContain(verifyRes.status());
     const cookieList = await ctx.storageState().then((s) => s.cookies);
     const sessionCookie = cookieList.find((c) => c.name === "lyco_session");
     expect(sessionCookie).toBeTruthy();
@@ -142,7 +143,10 @@ test.describe("GET /api/auth/verify", () => {
 
   test("returns 401 for invalid token", async () => {
     const ctx = await apiRequest.newContext();
-    const res = await ctx.get(`${BASE}/api/auth/verify?token=invalidtoken123`);
+    // GET renders the confirm page without consuming — only POST signs in.
+    const getRes = await ctx.get(`${BASE}/api/auth/verify?token=invalidtoken123`);
+    expect(getRes.status()).toBe(200);
+    const res = await ctx.post(`${BASE}/api/auth/verify?token=invalidtoken123`);
     expect(res.status()).toBe(401);
     await ctx.dispose();
   });
@@ -157,9 +161,9 @@ test.describe("GET /api/auth/verify", () => {
     const link = body.link;
 
     // Visit the verify link — should redirect to /
-    const verifyRes = await ctx.get(link, { maxRedirects: 0 });
-    expect([200, 307]).toContain(verifyRes.status());
-    if (verifyRes.status() === 307) {
+    const verifyRes = await ctx.post(link, { maxRedirects: 0 });
+    expect([200, 303, 307]).toContain(verifyRes.status());
+    if (verifyRes.status() === 303 || verifyRes.status() === 307) {
       const location = verifyRes.headers()["location"];
       expect(location).toContain("/");
     }
@@ -183,12 +187,33 @@ test.describe("GET /api/auth/verify", () => {
     const link = body.link;
 
     // First use — should succeed
-    const first = await ctx.get(link, { maxRedirects: 0 });
-    expect([200, 307]).toContain(first.status());
+    const first = await ctx.post(link, { maxRedirects: 0 });
+    expect([200, 303, 307]).toContain(first.status());
 
     // Second use — should fail
-    const second = await ctx.get(link, { maxRedirects: 0 });
+    const second = await ctx.post(link, { maxRedirects: 0 });
     expect(second.status()).toBe(401);
+
+    await ctx.dispose();
+  });
+
+  test("a bare GET renders the confirm page and does not consume the link", async () => {
+    const ctx = await apiRequest.newContext();
+    const res = await ctx.post(`${BASE}/api/auth/request-link`, {
+      data: { email: "scanner-safe@lyco.test" },
+    });
+    const body = await res.json();
+    const link = body.link;
+
+    // A scanner fetching the link gets a page, not a session
+    const getRes = await ctx.get(link, { maxRedirects: 0 });
+    expect(getRes.status()).toBe(200);
+    const cookies = (await ctx.storageState()).cookies;
+    expect(cookies.find((c) => c.name === "lyco_session")).toBeUndefined();
+
+    // The link still works for the real user
+    const postRes = await ctx.post(link, { maxRedirects: 0 });
+    expect([200, 302, 303, 307]).toContain(postRes.status());
 
     await ctx.dispose();
   });
@@ -213,7 +238,7 @@ test.describe("GET /api/auth/me", () => {
       data: { email: "me-test@lyco.test" },
     });
     const body = await res.json();
-    await ctx.get(body.link, { maxRedirects: 0 });
+    await ctx.post(body.link, { maxRedirects: 0 });
 
     // Now check /api/auth/me
     const meRes = await ctx.get(`${BASE}/api/auth/me`);
@@ -236,7 +261,7 @@ test.describe("POST /api/auth/logout", () => {
       data: { email: "logout-test@lyco.test" },
     });
     const body = await res.json();
-    await ctx.get(body.link, { maxRedirects: 0 });
+    await ctx.post(body.link, { maxRedirects: 0 });
 
     // Verify session exists
     const beforeRes = await ctx.get(`${BASE}/api/auth/me`);
@@ -276,7 +301,7 @@ test.describe("Auth flow: browser end-to-end", () => {
     await ctx.dispose();
 
     // Visit the verify link in the browser
-    await page.goto(body.link);
+    await redeemMagicLink(page, body.link);
     await page.waitForLoadState("networkidle");
 
     // Should be redirected to home
@@ -301,7 +326,7 @@ test.describe("Database: seed data", () => {
       data: { email: "sam@lyco.test" },
     });
     const body = await res.json();
-    await ctx.get(body.link, { maxRedirects: 0 });
+    await ctx.post(body.link, { maxRedirects: 0 });
 
     const meRes = await ctx.get(`${BASE}/api/auth/me`);
     const meBody = await meRes.json();
@@ -321,7 +346,7 @@ async function loginCtx(email: string) {
     data: { email },
   });
   const body = await res.json();
-  await ctx.get(body.link, { maxRedirects: 0 });
+  await ctx.post(body.link, { maxRedirects: 0 });
   return ctx;
 }
 

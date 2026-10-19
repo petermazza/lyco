@@ -1,3 +1,4 @@
+import { redeemMagicLink } from "./auth-helpers";
 import { test, expect, request as apiRequest } from "@playwright/test";
 import { execSync } from "child_process";
 
@@ -16,7 +17,7 @@ test("home data renders from DB when authenticated", async ({ page, context }) =
   await ctx.dispose();
 
   // Visit verify link to set session cookie
-  await page.goto(body.link);
+  await redeemMagicLink(page, body.link);
   await page.waitForLoadState("networkidle");
 
   // Should be on home page
@@ -27,7 +28,7 @@ test("home data renders from DB when authenticated", async ({ page, context }) =
 
   // Verify current block from DB
   await expect(page.getByText("Draft the SimpleFIN adapter")).toBeVisible();
-  await expect(page.getByText(/90 minutes.*until.*calendar/)).toBeVisible();
+  await expect(page.getByText(/90 minutes · until/)).toBeVisible();
   await expect(page.getByText(/minutes in/)).toBeVisible();
   await expect(page.getByText(/minutes left/)).toBeVisible();
 

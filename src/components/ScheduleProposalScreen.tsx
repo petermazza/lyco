@@ -284,7 +284,7 @@ export function ScheduleProposalScreen() {
         >
           <div style={{ fontSize: 12.5, color: "color-mix(in srgb, var(--color-text) 55%, transparent)" }}>{proposal.sessions}</div>
           <div style={{ fontSize: 12.5, lineHeight: 1.5, color: "color-mix(in srgb, var(--color-text) 40%, transparent)", textWrap: "pretty" }}>
-            confirming locks the deadline. changing it later is allowed, and it goes on this project's record permanently.
+            confirming locks the deadline. changing it later is allowed, and the change is recorded on this project.
           </div>
         </footer>
       </div>

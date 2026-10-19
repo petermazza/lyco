@@ -1,3 +1,4 @@
+import { redeemMagicLink } from "./auth-helpers";
 import { test, expect, request as apiRequest } from "@playwright/test";
 import { execSync } from "child_process";
 import { readFileSync } from "fs";
@@ -33,7 +34,7 @@ async function loginCtx(email: string) {
   const ctx = await apiRequest.newContext();
   const res = await ctx.post(`${BASE}/api/auth/request-link`, { data: { email } });
   const body = await res.json();
-  await ctx.get(body.link);
+  await ctx.post(body.link);
   return ctx;
 }
 
@@ -313,7 +314,7 @@ test.describe.serial("token tampering and expiry", () => {
       c.query(`UPDATE magic_link_tokens SET expires_at = now() - interval '1 hour' WHERE email = $1`, [email])
     );
     const ctx = await apiRequest.newContext();
-    const res = await ctx.get(`${BASE}/api/auth/verify?token=${token}`);
+    const res = await ctx.post(`${BASE}/api/auth/verify?token=${token}`);
     expect(res.status()).toBe(401);
     await ctx.dispose();
   });
@@ -325,13 +326,13 @@ test.describe.serial("token tampering and expiry", () => {
     const { link } = await res.json();
 
     // First use signs in
-    await first.get(link);
+    await first.post(link);
     const me = await (await first.get(`${BASE}/api/auth/me`)).json();
     expect(me.user.email).toBe(email);
 
     // Second use is refused
     const second = await apiRequest.newContext();
-    const again = await second.get(link, { maxRedirects: 0 });
+    const again = await second.post(link, { maxRedirects: 0 });
     expect(again.status()).toBe(401);
     const me2 = await second.get(`${BASE}/api/auth/me`);
     expect((await me2.json()).user).toBeNull();
@@ -517,7 +518,7 @@ test.describe.serial("UI recovery", () => {
     const res = await ctx.post(`${BASE}/api/auth/request-link`, { data: { email: "sam@lyco.test" } });
     const body = await res.json();
     await ctx.dispose();
-    await page.goto(body.link);
+    await redeemMagicLink(page, body.link);
     await page.waitForLoadState("networkidle");
 
     // Break the home feed

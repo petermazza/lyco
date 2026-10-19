@@ -121,7 +121,7 @@ export async function GET() {
       currentBlock = {
         id: b.id,
         title: b.title,
-        meta: `${formatDuration(b.duration_minutes)} · until ${formatTimeTz(tz, end)} · calendar`,
+        meta: `${formatDuration(b.duration_minutes)} · until ${formatTimeTz(tz, end)}${calendarConnected ? " · calendar" : ""}`,
         progress: `${b.progress}%`,
         elapsed: elapsedMin > 0 ? `${elapsedMin} minutes in` : "just started",
         left: `${leftMin} minutes left`,

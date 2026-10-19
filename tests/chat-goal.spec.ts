@@ -1,3 +1,4 @@
+import { redeemMagicLink } from "./auth-helpers";
 import { test, expect, request as apiRequest } from "@playwright/test";
 import { execSync } from "child_process";
 
@@ -19,7 +20,7 @@ test.describe.serial("Chat to goal flow", () => {
     const body = await res.json();
     await ctx.dispose();
 
-    await page.goto(body.link);
+    await redeemMagicLink(page, body.link);
     await page.waitForLoadState("networkidle");
     await page.waitForTimeout(1500);
 
@@ -83,7 +84,7 @@ test.describe.serial("Chat to goal flow", () => {
     const authBody = await authRes.json();
     await ctx.dispose();
 
-    await page.goto(authBody.link);
+    await redeemMagicLink(page, authBody.link);
     await page.waitForLoadState("networkidle");
     await page.waitForTimeout(1000);
 
