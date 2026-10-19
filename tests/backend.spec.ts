@@ -889,14 +889,17 @@ test.describe.serial("reminder sweep", () => {
     const first = runRemind({ only: email, at });
     expect(first.filter((r) => r.kind === "block_start")).toHaveLength(1);
 
-    // Move it to tomorrow morning, then sweep at that moment
+    // Move it to tomorrow morning, then sweep just after the new start.
+    // The API computes "tomorrow" in the user's timezone, so read the real
+    // scheduled_at back instead of assuming it shares the machine clock.
     await ctx.post(`${BASE}/api/blocks/${blocks[0].id}/move`, {
       data: { target: "tomorrow_morning" },
     });
-    const tomorrow9 = new Date();
-    tomorrow9.setDate(tomorrow9.getDate() + 1);
-    tomorrow9.setHours(9, 1, 0, 0);
-    const second = runRemind({ only: email, at: tomorrow9 });
+    const movedAt = await withDb(async (c) =>
+      (await c.query(`SELECT scheduled_at FROM blocks WHERE id = $1`, [blocks[0].id])).rows[0]
+        .scheduled_at as Date
+    );
+    const second = runRemind({ only: email, at: new Date(movedAt.getTime() + 60000) });
     expect(second.filter((r) => r.kind === "block_start" && r.title === "Movable")).toHaveLength(1);
     await ctx.dispose();
   });
