@@ -126,3 +126,14 @@ test.describe("login page layout", () => {
     expect(overflow).toBeLessThanOrEqual(0);
   });
 });
+
+test.describe("dependency security audit contract", () => {
+  test("npm run check:audit reports zero high/critical production vulnerabilities", () => {
+    const out = execSync("npm run check:audit", {
+      cwd: ROOT,
+      encoding: "utf-8",
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    expect(out).toContain("found 0 vulnerabilities");
+  });
+});

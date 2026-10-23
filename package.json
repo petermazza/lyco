@@ -10,7 +10,8 @@
     "migrate": "node --env-file=.env.local --import tsx scripts/migrate.ts",
     "db:seed": "node --env-file=.env.local --import tsx scripts/seed.ts",
     "db:reset": "node --env-file=.env.local --import tsx scripts/db-reset.ts",
-    "remind": "node --env-file-if-exists=.env.local --import tsx scripts/remind.ts"
+    "remind": "node --env-file-if-exists=.env.local --import tsx scripts/remind.ts",
+    "check:audit": "npm audit --omit=dev --audit-level=high"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.120.0",
